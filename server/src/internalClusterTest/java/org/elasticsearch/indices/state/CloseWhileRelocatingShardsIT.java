@@ -7,13 +7,13 @@
  */
 package org.elasticsearch.indices.state;
 
-import org.elasticsearch.action.admin.cluster.reroute.ClusterRerouteRequest;
+import org.elasticsearch.action.admin.cluster.reroute.ClusterRerouteUtils;
 import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.routing.IndexRoutingTable;
 import org.elasticsearch.cluster.routing.ShardRouting;
-import org.elasticsearch.cluster.routing.allocation.command.AllocationCommands;
+import org.elasticsearch.cluster.routing.allocation.command.AllocationCommand;
 import org.elasticsearch.cluster.routing.allocation.command.MoveAllocationCommand;
 import org.elasticsearch.cluster.routing.allocation.decider.ConcurrentRebalanceAllocationDecider;
 import org.elasticsearch.cluster.routing.allocation.decider.EnableAllocationDecider;
@@ -48,6 +48,7 @@ import static org.elasticsearch.indices.state.CloseIndexIT.assertException;
 import static org.elasticsearch.indices.state.CloseIndexIT.assertIndexIsClosed;
 import static org.elasticsearch.indices.state.CloseIndexIT.assertIndexIsOpened;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertResponse;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 
@@ -124,7 +125,7 @@ public class CloseWhileRelocatingShardsIT extends ESIntegTestCase {
             final CountDownLatch release = new CountDownLatch(indices.length);
 
             // relocate one shard for every index to be closed
-            final AllocationCommands commands = new AllocationCommands();
+            final var commands = new ArrayList<AllocationCommand>();
             for (final String index : indices) {
                 final NumShards numShards = getNumShards(index);
                 final int shardId = numShards.numPrimaries == 1 ? 0 : randomIntBetween(0, numShards.numPrimaries - 1);
@@ -145,8 +146,7 @@ public class CloseWhileRelocatingShardsIT extends ESIntegTestCase {
             }
 
             // Build the list of shards for which recoveries will be blocked
-            final Set<ShardId> blockedShards = commands.commands()
-                .stream()
+            final Set<ShardId> blockedShards = commands.stream()
                 .map(c -> (MoveAllocationCommand) c)
                 .map(c -> new ShardId(clusterService.state().metadata().index(c.index()).getIndex(), c.shardId()))
                 .collect(Collectors.toSet());
@@ -184,7 +184,7 @@ public class CloseWhileRelocatingShardsIT extends ESIntegTestCase {
                 }
             }
 
-            assertAcked(clusterAdmin().reroute(new ClusterRerouteRequest().commands(commands)).get());
+            ClusterRerouteUtils.reroute(client(), commands.toArray(AllocationCommand[]::new));
 
             // start index closing threads
             final List<Thread> threads = new ArrayList<>();
@@ -241,20 +241,22 @@ public class CloseWhileRelocatingShardsIT extends ESIntegTestCase {
             ensureGreen(indices);
 
             for (String index : acknowledgedCloses) {
-                long docsCount = prepareSearch(index).setSize(0).setTrackTotalHits(true).get().getHits().getTotalHits().value;
-                assertEquals(
-                    "Expected "
-                        + docsPerIndex.get(index)
-                        + " docs in index "
-                        + index
-                        + " but got "
-                        + docsCount
-                        + " (close acknowledged="
-                        + acknowledgedCloses.contains(index)
-                        + ")",
-                    (long) docsPerIndex.get(index),
-                    docsCount
-                );
+                assertResponse(prepareSearch(index).setSize(0).setTrackTotalHits(true), response -> {
+                    long docsCount = response.getHits().getTotalHits().value;
+                    assertEquals(
+                        "Expected "
+                            + docsPerIndex.get(index)
+                            + " docs in index "
+                            + index
+                            + " but got "
+                            + docsCount
+                            + " (close acknowledged="
+                            + acknowledgedCloses.contains(index)
+                            + ")",
+                        (long) docsPerIndex.get(index),
+                        docsCount
+                    );
+                });
             }
         } finally {
             updateClusterSettings(Settings.builder().putNull(EnableAllocationDecider.CLUSTER_ROUTING_REBALANCE_ENABLE_SETTING.getKey()));

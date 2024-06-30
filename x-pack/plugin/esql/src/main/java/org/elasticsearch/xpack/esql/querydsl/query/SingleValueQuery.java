@@ -39,13 +39,16 @@ import org.elasticsearch.index.query.MatchNoneQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.index.query.SearchExecutionContext;
-import org.elasticsearch.search.sort.NestedSortBuilder;
 import org.elasticsearch.xcontent.XContentBuilder;
-import org.elasticsearch.xpack.ql.querydsl.query.Query;
-import org.elasticsearch.xpack.ql.tree.Source;
+import org.elasticsearch.xpack.esql.core.querydsl.query.Query;
+import org.elasticsearch.xpack.esql.core.tree.Source;
+import org.elasticsearch.xpack.esql.expression.function.Warnings;
 
 import java.io.IOException;
 import java.util.Objects;
+
+import static org.elasticsearch.xpack.esql.core.util.SourceUtils.readSource;
+import static org.elasticsearch.xpack.esql.core.util.SourceUtils.writeSource;
 
 /**
  * Lucene query that wraps another query and only selects documents that match
@@ -68,6 +71,8 @@ public class SingleValueQuery extends Query {
         Builder::new
     );
 
+    public static final String MULTI_VALUE_WARNING = "single-value function encountered multi-value";
+
     private final Query next;
     private final String field;
 
@@ -78,23 +83,8 @@ public class SingleValueQuery extends Query {
     }
 
     @Override
-    public boolean containsNestedField(String path, String field) {
-        return next.containsNestedField(path, field);
-    }
-
-    @Override
-    public Query addNestedField(String path, String field, String format, boolean hasDocValues) {
-        return next.addNestedField(path, field, format, hasDocValues);
-    }
-
-    @Override
-    public void enrichNestedSort(NestedSortBuilder sort) {
-        next.enrichNestedSort(sort);
-    }
-
-    @Override
     public Builder asBuilder() {
-        return new Builder(next.asBuilder(), field, new Stats());
+        return new Builder(next.asBuilder(), field, new Stats(), next.source());
     }
 
     @Override
@@ -125,11 +115,13 @@ public class SingleValueQuery extends Query {
         private final QueryBuilder next;
         private final String field;
         private final Stats stats;
+        private final Source source;
 
-        Builder(QueryBuilder next, String field, Stats stats) {
+        Builder(QueryBuilder next, String field, Stats stats, Source source) {
             this.next = next;
             this.field = field;
             this.stats = stats;
+            this.source = source;
         }
 
         Builder(StreamInput in) throws IOException {
@@ -137,12 +129,21 @@ public class SingleValueQuery extends Query {
             this.next = in.readNamedWriteable(QueryBuilder.class);
             this.field = in.readString();
             this.stats = new Stats();
+            if (in.getTransportVersion().onOrAfter(TransportVersions.V_8_12_0)) {
+                this.source = readSource(in);
+            } else {
+                this.source = Source.EMPTY;
+
+            }
         }
 
         @Override
         protected void doWriteTo(StreamOutput out) throws IOException {
             out.writeNamedWriteable(next);
             out.writeString(field);
+            if (out.getTransportVersion().onOrAfter(TransportVersions.V_8_12_0)) {
+                writeSource(out, source);
+            }
         }
 
         public QueryBuilder next() {
@@ -151,6 +152,10 @@ public class SingleValueQuery extends Query {
 
         public String field() {
             return field;
+        }
+
+        public Source source() {
+            return source;
         }
 
         @Override
@@ -163,12 +168,13 @@ public class SingleValueQuery extends Query {
             builder.startObject(ENTRY.name);
             builder.field("field", field);
             builder.field("next", next, params);
+            builder.field("source", source.toString());
             builder.endObject();
         }
 
         @Override
         public TransportVersion getMinimalSupportedVersion() {
-            return TransportVersions.V_8_500_065; // This is 8.11 - the first version of ESQL
+            return TransportVersions.V_8_11_X; // the first version of ESQL
         }
 
         @Override
@@ -178,7 +184,12 @@ public class SingleValueQuery extends Query {
                 stats.missingField++;
                 return new MatchNoDocsQuery("missing field [" + field + "]");
             }
-            return new LuceneQuery(next.toQuery(context), context.getForField(ft, MappedFieldType.FielddataOperation.SEARCH), stats);
+            return new LuceneQuery(
+                next.toQuery(context),
+                context.getForField(ft, MappedFieldType.FielddataOperation.SEARCH),
+                stats,
+                new Warnings(source)
+            );
         }
 
         @Override
@@ -191,7 +202,7 @@ public class SingleValueQuery extends Query {
             if (rewritten == next) {
                 return this;
             }
-            return new Builder(rewritten, field, stats);
+            return new Builder(rewritten, field, stats, source);
         }
 
         @Override
@@ -210,14 +221,17 @@ public class SingleValueQuery extends Query {
     }
 
     private static class LuceneQuery extends org.apache.lucene.search.Query {
-        private final org.apache.lucene.search.Query next;
+        final org.apache.lucene.search.Query next;
         private final IndexFieldData<?> fieldData;
+        // mutable object for collecting stats and warnings, not really part of the query
         private final Stats stats;
+        private final Warnings warnings;
 
-        LuceneQuery(org.apache.lucene.search.Query next, IndexFieldData<?> fieldData, Stats stats) {
+        LuceneQuery(org.apache.lucene.search.Query next, IndexFieldData<?> fieldData, Stats stats, Warnings warnings) {
             this.next = next;
             this.fieldData = fieldData;
             this.stats = stats;
+            this.warnings = warnings;
         }
 
         @Override
@@ -237,12 +251,12 @@ public class SingleValueQuery extends Query {
             if (rewritten == next) {
                 return this;
             }
-            return new LuceneQuery(rewritten, fieldData, stats);
+            return new LuceneQuery(rewritten, fieldData, stats, warnings);
         }
 
         @Override
         public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost) throws IOException {
-            return new SingleValueWeight(this, next.createWeight(searcher, scoreMode, boost), fieldData);
+            return new SingleValueWeight(this, next.createWeight(searcher, scoreMode, boost), fieldData, warnings);
         }
 
         @Override
@@ -259,7 +273,7 @@ public class SingleValueQuery extends Query {
 
         @Override
         public int hashCode() {
-            return Objects.hash(classHash(), next, fieldData);
+            return Objects.hash(classHash(), next, fieldData.getFieldName());
         }
 
         @Override
@@ -278,12 +292,14 @@ public class SingleValueQuery extends Query {
         private final Stats stats;
         private final Weight next;
         private final IndexFieldData<?> fieldData;
+        private final Warnings warnings;
 
-        private SingleValueWeight(SingleValueQuery.LuceneQuery query, Weight next, IndexFieldData<?> fieldData) {
+        private SingleValueWeight(SingleValueQuery.LuceneQuery query, Weight next, IndexFieldData<?> fieldData, Warnings warnings) {
             super(query);
             this.stats = query.stats;
             this.next = next;
             this.fieldData = fieldData;
+            this.warnings = warnings;
         }
 
         @Override
@@ -354,14 +370,14 @@ public class SingleValueQuery extends Query {
                 return new SingleValueQueryScorer(
                     this,
                     nextScorer,
-                    new TwoPhaseIteratorForSortedNumericsAndSinglePhaseQueries(nextScorer.iterator(), sortedNumerics)
+                    new TwoPhaseIteratorForSortedNumericsAndSinglePhaseQueries(nextScorer.iterator(), sortedNumerics, warnings)
                 );
             }
             stats.numericMultiApprox++;
             return new SingleValueQueryScorer(
                 this,
                 nextScorer,
-                new TwoPhaseIteratorForSortedNumericsAndTwoPhaseQueries(nextIterator, sortedNumerics)
+                new TwoPhaseIteratorForSortedNumericsAndTwoPhaseQueries(nextIterator, sortedNumerics, warnings)
             );
         }
 
@@ -388,14 +404,14 @@ public class SingleValueQuery extends Query {
                 return new SingleValueQueryScorer(
                     this,
                     nextScorer,
-                    new TwoPhaseIteratorForSortedSetAndSinglePhaseQueries(nextScorer.iterator(), sortedSet)
+                    new TwoPhaseIteratorForSortedSetAndSinglePhaseQueries(nextScorer.iterator(), sortedSet, warnings)
                 );
             }
             stats.ordinalsMultiApprox++;
             return new SingleValueQueryScorer(
                 this,
                 nextScorer,
-                new TwoPhaseIteratorForSortedSetAndTwoPhaseQueries(nextIterator, sortedSet)
+                new TwoPhaseIteratorForSortedSetAndTwoPhaseQueries(nextIterator, sortedSet, warnings)
             );
         }
 
@@ -407,20 +423,21 @@ public class SingleValueQuery extends Query {
                 return new SingleValueQueryScorer(
                     this,
                     nextScorer,
-                    new TwoPhaseIteratorForSortedBinaryAndSinglePhaseQueries(nextScorer.iterator(), sortedBinary)
+                    new TwoPhaseIteratorForSortedBinaryAndSinglePhaseQueries(nextScorer.iterator(), sortedBinary, warnings)
                 );
             }
             stats.bytesApprox++;
             return new SingleValueQueryScorer(
                 this,
                 nextScorer,
-                new TwoPhaseIteratorForSortedBinaryAndTwoPhaseQueries(nextIterator, sortedBinary)
+                new TwoPhaseIteratorForSortedBinaryAndTwoPhaseQueries(nextIterator, sortedBinary, warnings)
             );
         }
 
         @Override
         public boolean isCacheable(LeafReaderContext ctx) {
-            return next.isCacheable(ctx);
+            // we cannot cache this query because we loose the ability of emitting warnings
+            return false;
         }
     }
 
@@ -469,13 +486,16 @@ public class SingleValueQuery extends Query {
 
     private static class TwoPhaseIteratorForSortedNumericsAndSinglePhaseQueries extends TwoPhaseIterator {
         private final SortedNumericDocValues sortedNumerics;
+        private final Warnings warnings;
 
         private TwoPhaseIteratorForSortedNumericsAndSinglePhaseQueries(
             DocIdSetIterator approximation,
-            SortedNumericDocValues sortedNumerics
+            SortedNumericDocValues sortedNumerics,
+            Warnings warning
         ) {
             super(approximation);
             this.sortedNumerics = sortedNumerics;
+            this.warnings = warning;
         }
 
         @Override
@@ -483,7 +503,11 @@ public class SingleValueQuery extends Query {
             if (false == sortedNumerics.advanceExact(approximation.docID())) {
                 return false;
             }
-            return sortedNumerics.docValueCount() == 1;
+            if (sortedNumerics.docValueCount() != 1) {
+                warnings.registerException(new IllegalArgumentException(MULTI_VALUE_WARNING));
+                return false;
+            }
+            return true;
         }
 
         @Override
@@ -495,11 +519,17 @@ public class SingleValueQuery extends Query {
     private static class TwoPhaseIteratorForSortedNumericsAndTwoPhaseQueries extends TwoPhaseIterator {
         private final SortedNumericDocValues sortedNumerics;
         private final TwoPhaseIterator next;
+        private final Warnings warnings;
 
-        private TwoPhaseIteratorForSortedNumericsAndTwoPhaseQueries(TwoPhaseIterator next, SortedNumericDocValues sortedNumerics) {
+        private TwoPhaseIteratorForSortedNumericsAndTwoPhaseQueries(
+            TwoPhaseIterator next,
+            SortedNumericDocValues sortedNumerics,
+            Warnings warnings
+        ) {
             super(next.approximation());
             this.sortedNumerics = sortedNumerics;
             this.next = next;
+            this.warnings = warnings;
         }
 
         @Override
@@ -508,6 +538,7 @@ public class SingleValueQuery extends Query {
                 return false;
             }
             if (sortedNumerics.docValueCount() != 1) {
+                warnings.registerException(new IllegalArgumentException(MULTI_VALUE_WARNING));
                 return false;
             }
             return next.matches();
@@ -521,10 +552,16 @@ public class SingleValueQuery extends Query {
 
     private static class TwoPhaseIteratorForSortedBinaryAndSinglePhaseQueries extends TwoPhaseIterator {
         private final SortedBinaryDocValues sortedBinary;
+        private final Warnings warnings;
 
-        private TwoPhaseIteratorForSortedBinaryAndSinglePhaseQueries(DocIdSetIterator approximation, SortedBinaryDocValues sortedBinary) {
+        private TwoPhaseIteratorForSortedBinaryAndSinglePhaseQueries(
+            DocIdSetIterator approximation,
+            SortedBinaryDocValues sortedBinary,
+            Warnings warnings
+        ) {
             super(approximation);
             this.sortedBinary = sortedBinary;
+            this.warnings = warnings;
         }
 
         @Override
@@ -532,7 +569,11 @@ public class SingleValueQuery extends Query {
             if (false == sortedBinary.advanceExact(approximation.docID())) {
                 return false;
             }
-            return sortedBinary.docValueCount() == 1;
+            if (sortedBinary.docValueCount() != 1) {
+                warnings.registerException(new IllegalArgumentException(MULTI_VALUE_WARNING));
+                return false;
+            }
+            return true;
         }
 
         @Override
@@ -544,11 +585,13 @@ public class SingleValueQuery extends Query {
     private static class TwoPhaseIteratorForSortedSetAndTwoPhaseQueries extends TwoPhaseIterator {
         private final SortedSetDocValues sortedSet;
         private final TwoPhaseIterator next;
+        private final Warnings warnings;
 
-        private TwoPhaseIteratorForSortedSetAndTwoPhaseQueries(TwoPhaseIterator next, SortedSetDocValues sortedSet) {
+        private TwoPhaseIteratorForSortedSetAndTwoPhaseQueries(TwoPhaseIterator next, SortedSetDocValues sortedSet, Warnings warnings) {
             super(next.approximation());
             this.sortedSet = sortedSet;
             this.next = next;
+            this.warnings = warnings;
         }
 
         @Override
@@ -557,6 +600,7 @@ public class SingleValueQuery extends Query {
                 return false;
             }
             if (sortedSet.docValueCount() != 1) {
+                warnings.registerException(new IllegalArgumentException(MULTI_VALUE_WARNING));
                 return false;
             }
             return next.matches();
@@ -570,10 +614,16 @@ public class SingleValueQuery extends Query {
 
     private static class TwoPhaseIteratorForSortedSetAndSinglePhaseQueries extends TwoPhaseIterator {
         private final SortedSetDocValues sortedSet;
+        private final Warnings warnings;
 
-        private TwoPhaseIteratorForSortedSetAndSinglePhaseQueries(DocIdSetIterator approximation, SortedSetDocValues sortedSet) {
+        private TwoPhaseIteratorForSortedSetAndSinglePhaseQueries(
+            DocIdSetIterator approximation,
+            SortedSetDocValues sortedSet,
+            Warnings warnings
+        ) {
             super(approximation);
             this.sortedSet = sortedSet;
+            this.warnings = warnings;
         }
 
         @Override
@@ -581,7 +631,11 @@ public class SingleValueQuery extends Query {
             if (false == sortedSet.advanceExact(approximation.docID())) {
                 return false;
             }
-            return sortedSet.docValueCount() == 1;
+            if (sortedSet.docValueCount() != 1) {
+                warnings.registerException(new IllegalArgumentException(MULTI_VALUE_WARNING));
+                return false;
+            }
+            return true;
         }
 
         @Override
@@ -593,11 +647,17 @@ public class SingleValueQuery extends Query {
     private static class TwoPhaseIteratorForSortedBinaryAndTwoPhaseQueries extends TwoPhaseIterator {
         private final SortedBinaryDocValues sortedBinary;
         private final TwoPhaseIterator next;
+        private final Warnings warnings;
 
-        private TwoPhaseIteratorForSortedBinaryAndTwoPhaseQueries(TwoPhaseIterator next, SortedBinaryDocValues sortedBinary) {
+        private TwoPhaseIteratorForSortedBinaryAndTwoPhaseQueries(
+            TwoPhaseIterator next,
+            SortedBinaryDocValues sortedBinary,
+            Warnings warnings
+        ) {
             super(next.approximation());
             this.sortedBinary = sortedBinary;
             this.next = next;
+            this.warnings = warnings;
         }
 
         @Override
@@ -606,6 +666,7 @@ public class SingleValueQuery extends Query {
                 return false;
             }
             if (sortedBinary.docValueCount() != 1) {
+                warnings.registerException(new IllegalArgumentException(MULTI_VALUE_WARNING));
                 return false;
             }
             return next.matches();

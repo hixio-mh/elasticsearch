@@ -27,6 +27,7 @@ import org.elasticsearch.indices.recovery.RecoverySettings;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.RepositoryPlugin;
 import org.elasticsearch.repositories.IndexId;
+import org.elasticsearch.repositories.RepositoriesMetrics;
 import org.elasticsearch.repositories.RepositoriesService;
 import org.elasticsearch.repositories.Repository;
 import org.elasticsearch.repositories.RepositoryData;
@@ -72,7 +73,8 @@ public class ShardSnapshotsServiceIT extends ESIntegTestCase {
             NamedXContentRegistry namedXContentRegistry,
             ClusterService clusterService,
             BigArrays bigArrays,
-            RecoverySettings recoverySettings
+            RecoverySettings recoverySettings,
+            RepositoriesMetrics repositoriesMetrics
         ) {
             return Collections.singletonMap(
                 TYPE,
@@ -241,7 +243,7 @@ public class ShardSnapshotsServiceIT extends ESIntegTestCase {
             );
 
             assertAcked(
-                clusterAdmin().preparePutRepository(failingRepo.v1())
+                clusterAdmin().preparePutRepository(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT, failingRepo.v1())
                     .setType(FailingRepoPlugin.TYPE)
                     .setVerify(false)
                     .setSettings(Settings.builder().put(repoFailureType, true).put("location", failingRepo.v2()))
@@ -288,7 +290,7 @@ public class ShardSnapshotsServiceIT extends ESIntegTestCase {
 
     private void createRepository(String repositoryName, String type, Path location, boolean recoveryEnabledRepo) {
         assertAcked(
-            clusterAdmin().preparePutRepository(repositoryName)
+            clusterAdmin().preparePutRepository(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT, repositoryName)
                 .setType(type)
                 .setVerify(false)
                 .setSettings(
@@ -300,6 +302,9 @@ public class ShardSnapshotsServiceIT extends ESIntegTestCase {
     }
 
     private void createSnapshot(String repoName, String snapshotName, String index) {
-        clusterAdmin().prepareCreateSnapshot(repoName, snapshotName).setWaitForCompletion(true).setIndices(index).get();
+        clusterAdmin().prepareCreateSnapshot(TEST_REQUEST_TIMEOUT, repoName, snapshotName)
+            .setWaitForCompletion(true)
+            .setIndices(index)
+            .get();
     }
 }

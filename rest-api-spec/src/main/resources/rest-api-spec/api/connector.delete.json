@@ -1,12 +1,11 @@
 {
   "connector.delete": {
     "documentation": {
-      "url": "https://www.elastic.co/guide/en/enterprise-search/current/connectors.html",
+      "url": "https://www.elastic.co/guide/en/elasticsearch/reference/master/delete-connector-api.html",
       "description": "Deletes a connector."
     },
     "stability": "experimental",
-    "visibility": "feature_flag",
-    "feature_flag": "es.connector_api_feature_flag_enabled",
+    "visibility": "public",
     "headers": {
       "accept": [
         "application/json"
@@ -27,6 +26,13 @@
           }
         }
       ]
+    },
+    "params": {
+      "delete_sync_jobs": {
+        "type": "boolean",
+        "default": false,
+        "description": "Determines whether associated sync jobs are also deleted."
+      }
     }
   }
 }

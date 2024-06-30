@@ -44,6 +44,7 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiTermQuery;
 import org.apache.lucene.search.PrefixQuery;
+import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryCachingPolicy;
 import org.apache.lucene.search.ScoreDoc;
@@ -77,8 +78,8 @@ import org.elasticsearch.search.internal.ReaderContext;
 import org.elasticsearch.search.internal.ScrollContext;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchContextId;
-import org.elasticsearch.search.rank.RankShardContext;
 import org.elasticsearch.search.rank.RankShardResult;
+import org.elasticsearch.search.rank.context.QueryPhaseRankShardContext;
 import org.elasticsearch.search.sort.SortAndFormats;
 import org.elasticsearch.tasks.TaskCancelHelper;
 import org.elasticsearch.tasks.TaskCancelledException;
@@ -689,7 +690,6 @@ public class QueryPhaseTests extends IndexShardTestCase {
                 assertThat(context.queryResult().getTotalHits().value, equalTo((long) numDocs));
                 int sizeMinus1 = context.queryResult().topDocs().topDocs.scoreDocs.length - 1;
                 FieldDoc lastDoc = (FieldDoc) context.queryResult().topDocs().topDocs.scoreDocs[sizeMinus1];
-
                 context.setSearcher(earlyTerminationContextSearcher(reader, 10));
                 QueryPhase.addCollectorsAndSearch(context);
                 assertNull(context.queryResult().terminatedEarly());
@@ -701,7 +701,7 @@ public class QueryPhaseTests extends IndexShardTestCase {
                     @SuppressWarnings("unchecked")
                     FieldComparator<Object> comparator = (FieldComparator<Object>) searchSortAndFormat.sort.getSort()[i].getComparator(
                         1,
-                        i == 0
+                        i == 0 ? Pruning.GREATER_THAN : Pruning.NONE
                     );
                     int cmp = comparator.compareValues(firstDoc.fields[i], lastDoc.fields[i]);
                     if (cmp == 0) {
@@ -1056,9 +1056,9 @@ public class QueryPhaseTests extends IndexShardTestCase {
             context.parsedQuery(
                 new ParsedQuery(new BooleanQuery.Builder().add(queries.get(0), Occur.SHOULD).add(queries.get(1), Occur.SHOULD).build())
             );
-            context.rankShardContext(new RankShardContext(queries, 0, 100) {
+            context.queryPhaseRankShardContext(new QueryPhaseRankShardContext(queries, 0) {
                 @Override
-                public RankShardResult combine(List<TopDocs> rankResults) {
+                public RankShardResult combineQueryPhaseResults(List<TopDocs> rankResults) {
                     return null;
                 }
             });

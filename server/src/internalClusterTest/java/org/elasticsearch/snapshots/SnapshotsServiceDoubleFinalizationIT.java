@@ -31,6 +31,7 @@ import org.elasticsearch.env.Environment;
 import org.elasticsearch.indices.recovery.RecoverySettings;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.RepositoryPlugin;
+import org.elasticsearch.repositories.RepositoriesMetrics;
 import org.elasticsearch.repositories.Repository;
 import org.elasticsearch.repositories.fs.FsRepository;
 import org.elasticsearch.snapshots.mockstore.BlobStoreWrapper;
@@ -85,7 +86,7 @@ public class SnapshotsServiceDoubleFinalizationIT extends AbstractSnapshotIntegT
             final SnapshotDeletionsInProgress snapshotDeletionsInProgress = SnapshotDeletionsInProgress.get(state);
             return snapshotDeletionsInProgress.getEntries()
                 .stream()
-                .flatMap(entry -> entry.getSnapshots().stream())
+                .flatMap(entry -> entry.snapshots().stream())
                 .anyMatch(snapshotId -> snapshotId.getName().equals("snap-1"));
 
         });
@@ -117,7 +118,7 @@ public class SnapshotsServiceDoubleFinalizationIT extends AbstractSnapshotIntegT
                             .equals(Set.of(SnapshotsInProgress.ShardState.QUEUED, SnapshotsInProgress.ShardState.MISSING))
                 );
         });
-        clusterAdmin().prepareCreateSnapshot(repoName, "snap-2")
+        clusterAdmin().prepareCreateSnapshot(TEST_REQUEST_TIMEOUT, repoName, "snap-2")
             .setIndices("index-2", "index-3")
             .setPartial(true)
             .setWaitForCompletion(false)
@@ -148,7 +149,7 @@ public class SnapshotsServiceDoubleFinalizationIT extends AbstractSnapshotIntegT
                 .stream()
                 .anyMatch(
                     entry -> entry.state() == SnapshotDeletionsInProgress.State.WAITING
-                        && entry.getSnapshots().stream().anyMatch(snapshotId -> snapshotId.getName().equals("snap-2"))
+                        && entry.snapshots().stream().anyMatch(snapshotId -> snapshotId.getName().equals("snap-2"))
                 );
         });
         new Thread(() -> {
@@ -166,6 +167,7 @@ public class SnapshotsServiceDoubleFinalizationIT extends AbstractSnapshotIntegT
     private PlainActionFuture<Void> setWaitForClusterState(Predicate<ClusterState> predicate) {
         final var clusterStateObserver = new ClusterStateObserver(
             internalCluster().getCurrentMasterNodeInstance(ClusterService.class),
+            TimeValue.timeValueMillis(60000),
             logger,
             new ThreadContext(Settings.EMPTY)
         );
@@ -204,7 +206,8 @@ public class SnapshotsServiceDoubleFinalizationIT extends AbstractSnapshotIntegT
             NamedXContentRegistry namedXContentRegistry,
             ClusterService clusterService,
             BigArrays bigArrays,
-            RecoverySettings recoverySettings
+            RecoverySettings recoverySettings,
+            RepositoriesMetrics repositoriesMetrics
         ) {
             return Map.of(
                 REPO_TYPE,

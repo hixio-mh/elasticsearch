@@ -11,13 +11,10 @@ package org.elasticsearch.action.admin.cluster.node.stats;
 import org.elasticsearch.action.admin.indices.stats.CommonStatsFlags;
 import org.elasticsearch.action.support.nodes.BaseNodesRequest;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.common.io.stream.StreamInput;
-import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.tasks.CancellableTask;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.tasks.TaskId;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
@@ -29,17 +26,11 @@ import java.util.TreeSet;
  */
 public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
 
-    private NodesStatsRequestParameters nodesStatsRequestParameters;
+    private final NodesStatsRequestParameters nodesStatsRequestParameters;
 
     public NodesStatsRequest() {
         super((String[]) null);
         nodesStatsRequestParameters = new NodesStatsRequestParameters();
-    }
-
-    public NodesStatsRequest(StreamInput in) throws IOException {
-        super(in);
-
-        nodesStatsRequestParameters = new NodesStatsRequestParameters(in);
     }
 
     /**
@@ -47,8 +38,12 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
      * for all nodes will be returned.
      */
     public NodesStatsRequest(String... nodesIds) {
+        this(new NodesStatsRequestParameters(), nodesIds);
+    }
+
+    public NodesStatsRequest(NodesStatsRequestParameters nodesStatsRequestParameters, String... nodesIds) {
         super(nodesIds);
-        nodesStatsRequestParameters = new NodesStatsRequestParameters();
+        this.nodesStatsRequestParameters = nodesStatsRequestParameters;
     }
 
     /**
@@ -174,10 +169,7 @@ public class NodesStatsRequest extends BaseNodesRequest<NodesStatsRequest> {
         nodesStatsRequestParameters.setIncludeShardsStats(includeShardsStats);
     }
 
-    @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
-        nodesStatsRequestParameters.writeTo(out);
+    public NodesStatsRequestParameters getNodesStatsRequestParameters() {
+        return nodesStatsRequestParameters;
     }
-
 }

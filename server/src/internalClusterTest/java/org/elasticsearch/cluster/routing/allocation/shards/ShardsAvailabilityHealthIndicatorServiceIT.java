@@ -18,6 +18,7 @@ import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.health.HealthIndicatorResult;
 import org.elasticsearch.health.HealthStatus;
+import org.elasticsearch.health.node.DataStreamLifecycleHealthInfo;
 import org.elasticsearch.health.node.HealthInfo;
 import org.elasticsearch.indices.SystemIndices;
 import org.elasticsearch.test.ESIntegTestCase;
@@ -69,11 +70,14 @@ public class ShardsAvailabilityHealthIndicatorServiceIT extends ESIntegTestCase 
         var repositoryName = "repository";
         var snapshotName = randomIdentifier();
         assertAcked(
-            clusterAdmin().preparePutRepository(repositoryName)
+            clusterAdmin().preparePutRepository(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT, repositoryName)
                 .setType("fs")
                 .setSettings(Settings.builder().put("location", randomRepoPath()))
         );
-        clusterAdmin().prepareCreateSnapshot(repositoryName, snapshotName).setIndices(index).setWaitForCompletion(true).get();
+        clusterAdmin().prepareCreateSnapshot(TEST_REQUEST_TIMEOUT, repositoryName, snapshotName)
+            .setIndices(index)
+            .setWaitForCompletion(true)
+            .get();
         if (randomBoolean()) {
             assertAcked(indicesAdmin().prepareDelete(index));
         } else {
@@ -82,7 +86,10 @@ public class ShardsAvailabilityHealthIndicatorServiceIT extends ESIntegTestCase 
         ensureGreen();
 
         assertHealthDuring(equalTo(GREEN), () -> {
-            clusterAdmin().prepareRestoreSnapshot(repositoryName, snapshotName).setIndices(index).setWaitForCompletion(true).get();
+            clusterAdmin().prepareRestoreSnapshot(TEST_REQUEST_TIMEOUT, repositoryName, snapshotName)
+                .setIndices(index)
+                .setWaitForCompletion(true)
+                .get();
             ensureGreen(index);
         });
     }
@@ -132,7 +139,10 @@ public class ShardsAvailabilityHealthIndicatorServiceIT extends ESIntegTestCase 
             @Override
             public void clusterChanged(ClusterChangedEvent event) {
                 states.add(
-                    new RoutingNodesAndHealth(event.state().getRoutingNodes(), service.calculate(false, 1, new HealthInfo(Map.of())))
+                    new RoutingNodesAndHealth(
+                        event.state().getRoutingNodes(),
+                        service.calculate(false, 1, new HealthInfo(Map.of(), DataStreamLifecycleHealthInfo.NO_DSL_ERRORS, Map.of()))
+                    )
                 );
             }
         };

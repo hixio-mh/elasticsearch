@@ -105,7 +105,7 @@ public class CrossClusterSearchIT extends AbstractMultiClustersTestCase {
 
         SearchRequest searchRequest = new SearchRequest(localIndex, REMOTE_CLUSTER + ":" + remoteIndex);
         if (randomBoolean()) {
-            searchRequest = searchRequest.scroll("1m");
+            searchRequest = searchRequest.scroll(TimeValue.timeValueMinutes(1));
         }
         searchRequest.allowPartialSearchResults(false);
         if (randomBoolean()) {
@@ -286,7 +286,7 @@ public class CrossClusterSearchIT extends AbstractMultiClustersTestCase {
 
         SearchRequest searchRequest = new SearchRequest(localIndex, REMOTE_CLUSTER + ":" + "no_such_index*");
         if (randomBoolean()) {
-            searchRequest = searchRequest.scroll("1m");
+            searchRequest = searchRequest.scroll(TimeValue.timeValueMinutes(1));
         }
         searchRequest.allowPartialSearchResults(false);
         if (randomBoolean()) {
@@ -372,7 +372,10 @@ public class CrossClusterSearchIT extends AbstractMultiClustersTestCase {
 
         boolean minimizeRoundtrips = TransportSearchAction.shouldMinimizeRoundtrips(searchRequest);
 
-        client(LOCAL_CLUSTER).search(searchRequest, queryFuture);
+        client(LOCAL_CLUSTER).search(searchRequest, queryFuture.delegateFailure((l, r) -> {
+            r.incRef();
+            l.onResponse(r);
+        }));
         assertBusy(() -> assertTrue(queryFuture.isDone()));
 
         // dfs=true overrides the minimize_roundtrips=true setting and does not minimize roundtrips
@@ -612,7 +615,10 @@ public class CrossClusterSearchIT extends AbstractMultiClustersTestCase {
 
         boolean minimizeRoundtrips = TransportSearchAction.shouldMinimizeRoundtrips(searchRequest);
 
-        client(LOCAL_CLUSTER).search(searchRequest, queryFuture);
+        client(LOCAL_CLUSTER).search(searchRequest, queryFuture.delegateFailure((l, r) -> {
+            r.incRef();
+            l.onResponse(r);
+        }));
         assertBusy(() -> assertTrue(queryFuture.isDone()));
 
         if (skipUnavailable == false || minimizeRoundtrips == false) {

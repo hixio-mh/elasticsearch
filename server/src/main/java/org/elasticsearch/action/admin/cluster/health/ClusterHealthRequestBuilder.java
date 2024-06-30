@@ -22,7 +22,7 @@ public class ClusterHealthRequestBuilder extends MasterNodeReadOperationRequestB
     ClusterHealthRequestBuilder> {
 
     public ClusterHealthRequestBuilder(ElasticsearchClient client) {
-        super(client, ClusterHealthAction.INSTANCE, new ClusterHealthRequest());
+        super(client, TransportClusterHealthAction.TYPE, new ClusterHealthRequest());
     }
 
     public ClusterHealthRequestBuilder setIndices(String... indices) {
@@ -36,11 +36,6 @@ public class ClusterHealthRequestBuilder extends MasterNodeReadOperationRequestB
     }
 
     public ClusterHealthRequestBuilder setTimeout(TimeValue timeout) {
-        request.timeout(timeout);
-        return this;
-    }
-
-    public ClusterHealthRequestBuilder setTimeout(String timeout) {
         request.timeout(timeout);
         return this;
     }

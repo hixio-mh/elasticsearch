@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertHitCount;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -78,9 +79,7 @@ public class RestartIndexFollowingIT extends CcrIntegTestCase {
             leaderClient().prepareIndex("index1").setId(Integer.toString(i)).setSource(source, XContentType.JSON).get();
         }
 
-        assertBusy(
-            () -> assertThat(followerClient().prepareSearch("index2").get().getHits().getTotalHits().value, equalTo(firstBatchNumDocs))
-        );
+        assertBusy(() -> assertHitCount(followerClient().prepareSearch("index2"), firstBatchNumDocs));
 
         getFollowerCluster().fullRestart();
         ensureFollowerGreen("index2");
@@ -115,16 +114,18 @@ public class RestartIndexFollowingIT extends CcrIntegTestCase {
                     followerClient().execute(PutFollowAction.INSTANCE, putFollow("index1", "index2", ActiveShardCount.ALL)).actionGet();
                 }
             }
-            assertThat(followerClient().prepareSearch("index2").get().getHits().getTotalHits().value, equalTo(totalDocs));
+            assertHitCount(followerClient().prepareSearch("index2"), totalDocs);
         }, 30L, TimeUnit.SECONDS);
 
         cleanRemoteCluster();
-        assertAcked(followerClient().execute(PauseFollowAction.INSTANCE, new PauseFollowAction.Request("index2")).actionGet());
+        assertAcked(
+            followerClient().execute(PauseFollowAction.INSTANCE, new PauseFollowAction.Request(TEST_REQUEST_TIMEOUT, "index2")).actionGet()
+        );
         assertAcked(followerClient().admin().indices().prepareClose("index2"));
 
         final ActionFuture<AcknowledgedResponse> unfollowFuture = followerClient().execute(
             UnfollowAction.INSTANCE,
-            new UnfollowAction.Request("index2")
+            new UnfollowAction.Request(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT, "index2")
         );
         final ElasticsearchException elasticsearchException = expectThrows(ElasticsearchException.class, unfollowFuture::actionGet);
         assertThat(elasticsearchException.getMessage(), containsString("no such remote cluster"));

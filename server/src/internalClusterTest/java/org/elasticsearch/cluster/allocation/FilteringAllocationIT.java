@@ -8,6 +8,7 @@
 
 package org.elasticsearch.cluster.allocation;
 
+import org.elasticsearch.action.admin.cluster.reroute.ClusterRerouteUtils;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.health.ClusterHealthStatus;
 import org.elasticsearch.cluster.metadata.AutoExpandReplicas;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertHitCount;
 import static org.hamcrest.Matchers.equalTo;
 
 @ClusterScope(scope = Scope.TEST, numDataNodes = 0)
@@ -51,7 +53,7 @@ public class FilteringAllocationIT extends ESIntegTestCase {
             prepareIndex("test").setId(Integer.toString(i)).setSource("field", "value" + i).get();
         }
         indicesAdmin().prepareRefresh().get();
-        assertThat(prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).get().getHits().getTotalHits().value, equalTo(100L));
+        assertHitCount(prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()), 100);
 
         final boolean closed = randomBoolean();
         if (closed) {
@@ -79,7 +81,7 @@ public class FilteringAllocationIT extends ESIntegTestCase {
         }
 
         indicesAdmin().prepareRefresh().get();
-        assertThat(prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).get().getHits().getTotalHits().value, equalTo(100L));
+        assertHitCount(prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()), 100);
     }
 
     public void testAutoExpandReplicasToFilteredNodes() {
@@ -132,7 +134,7 @@ public class FilteringAllocationIT extends ESIntegTestCase {
             prepareIndex("test").setId(Integer.toString(i)).setSource("field", "value" + i).get();
         }
         indicesAdmin().prepareRefresh().get();
-        assertThat(prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).get().getHits().getTotalHits().value, equalTo(100L));
+        assertHitCount(prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()), 100);
 
         final boolean closed = randomBoolean();
         if (closed) {
@@ -159,7 +161,7 @@ public class FilteringAllocationIT extends ESIntegTestCase {
         }
         logger.info("--> remove index from the first node");
         updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", node_0), "test");
-        clusterAdmin().prepareReroute().get();
+        ClusterRerouteUtils.reroute(client());
         ensureGreen("test");
 
         logger.info("--> verify all shards are allocated on node_1 now");
@@ -174,7 +176,7 @@ public class FilteringAllocationIT extends ESIntegTestCase {
 
         logger.info("--> disable allocation filtering ");
         updateIndexSettings(Settings.builder().put("index.routing.allocation.exclude._name", ""), "test");
-        clusterAdmin().prepareReroute().get();
+        ClusterRerouteUtils.reroute(client());
         ensureGreen("test");
 
         logger.info("--> verify that there are shards allocated on both nodes now");
@@ -191,9 +193,8 @@ public class FilteringAllocationIT extends ESIntegTestCase {
         );
         IllegalArgumentException e = expectThrows(
             IllegalArgumentException.class,
-            () -> clusterAdmin().prepareUpdateSettings()
+            clusterAdmin().prepareUpdateSettings()
                 .setPersistentSettings(Settings.builder().put(filterSetting.getKey() + ipKey, "192.168.1.1."))
-                .get()
         );
         assertEquals("invalid IP address [192.168.1.1.] for [" + filterSetting.getKey() + ipKey + "]", e.getMessage());
     }

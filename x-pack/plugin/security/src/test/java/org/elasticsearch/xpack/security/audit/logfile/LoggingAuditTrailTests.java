@@ -37,6 +37,7 @@ import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.tasks.Task;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.rest.FakeRestRequest;
 import org.elasticsearch.test.rest.FakeRestRequest.Builder;
@@ -46,6 +47,7 @@ import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.XContentType;
 import org.elasticsearch.xpack.core.XPackSettings;
+import org.elasticsearch.xpack.core.security.action.apikey.ApiKeyTests;
 import org.elasticsearch.xpack.core.security.action.apikey.BulkUpdateApiKeyAction;
 import org.elasticsearch.xpack.core.security.action.apikey.BulkUpdateApiKeyRequest;
 import org.elasticsearch.xpack.core.security.action.apikey.CreateApiKeyAction;
@@ -83,13 +85,11 @@ import org.elasticsearch.xpack.core.security.action.service.CreateServiceAccount
 import org.elasticsearch.xpack.core.security.action.service.CreateServiceAccountTokenRequest;
 import org.elasticsearch.xpack.core.security.action.service.DeleteServiceAccountTokenAction;
 import org.elasticsearch.xpack.core.security.action.service.DeleteServiceAccountTokenRequest;
-import org.elasticsearch.xpack.core.security.action.user.ChangePasswordAction;
 import org.elasticsearch.xpack.core.security.action.user.ChangePasswordRequest;
 import org.elasticsearch.xpack.core.security.action.user.DeleteUserAction;
 import org.elasticsearch.xpack.core.security.action.user.DeleteUserRequest;
 import org.elasticsearch.xpack.core.security.action.user.PutUserAction;
 import org.elasticsearch.xpack.core.security.action.user.PutUserRequest;
-import org.elasticsearch.xpack.core.security.action.user.SetEnabledAction;
 import org.elasticsearch.xpack.core.security.action.user.SetEnabledRequest;
 import org.elasticsearch.xpack.core.security.audit.logfile.CapturingLogger;
 import org.elasticsearch.xpack.core.security.authc.Authentication;
@@ -115,6 +115,8 @@ import org.elasticsearch.xpack.core.security.user.InternalUser;
 import org.elasticsearch.xpack.core.security.user.InternalUsers;
 import org.elasticsearch.xpack.core.security.user.User;
 import org.elasticsearch.xpack.core.security.user.UsernamesField;
+import org.elasticsearch.xpack.security.action.user.TransportChangePasswordAction;
+import org.elasticsearch.xpack.security.action.user.TransportSetEnabledAction;
 import org.elasticsearch.xpack.security.audit.AuditLevel;
 import org.elasticsearch.xpack.security.audit.AuditTrail;
 import org.elasticsearch.xpack.security.audit.AuditUtil;
@@ -359,7 +361,8 @@ public class LoggingAuditTrailTests extends ESTestCase {
             securityIndexManager,
             clusterService,
             mock(CacheInvalidatorRegistry.class),
-            mock(ThreadPool.class)
+            mock(ThreadPool.class),
+            MeterRegistry.NOOP
         );
     }
 
@@ -626,20 +629,23 @@ public class LoggingAuditTrailTests extends ESTestCase {
         CapturingLogger.output(logger.getName(), Level.INFO).clear();
 
         final String keyId = randomAlphaOfLength(10);
+        final TimeValue newExpiration = randomFrom(ApiKeyTests.randomFutureExpirationTime(), null);
         final var updateApiKeyRequest = new UpdateApiKeyRequest(
             keyId,
             randomBoolean() ? null : keyRoleDescriptors,
-            metadataWithSerialization.metadata()
+            metadataWithSerialization.metadata(),
+            newExpiration
         );
         auditTrail.accessGranted(requestId, authentication, UpdateApiKeyAction.NAME, updateApiKeyRequest, authorizationInfo);
         final var expectedUpdateKeyAuditEventString = String.format(
             Locale.ROOT,
             """
-                "change":{"apikey":{"id":"%s","type":"rest"%s%s}}\
+                "change":{"apikey":{"id":"%s","type":"rest"%s%s,"expiration":%s}}\
                 """,
             keyId,
             updateApiKeyRequest.getRoleDescriptors() == null ? "" : "," + roleDescriptorsStringBuilder,
-            updateApiKeyRequest.getMetadata() == null ? "" : Strings.format(",\"metadata\":%s", metadataWithSerialization.serialization())
+            updateApiKeyRequest.getMetadata() == null ? "" : Strings.format(",\"metadata\":%s", metadataWithSerialization.serialization()),
+            updateApiKeyRequest.getExpiration() == null ? null : Strings.format("\"%s\"", newExpiration)
         );
         output = CapturingLogger.output(logger.getName(), Level.INFO);
         assertThat(output.size(), is(2));
@@ -661,13 +667,14 @@ public class LoggingAuditTrailTests extends ESTestCase {
         final var bulkUpdateApiKeyRequest = new BulkUpdateApiKeyRequest(
             keyIds,
             randomBoolean() ? null : keyRoleDescriptors,
-            metadataWithSerialization.metadata()
+            metadataWithSerialization.metadata(),
+            null
         );
         auditTrail.accessGranted(requestId, authentication, BulkUpdateApiKeyAction.NAME, bulkUpdateApiKeyRequest, authorizationInfo);
         final var expectedBulkUpdateKeyAuditEventString = String.format(
             Locale.ROOT,
             """
-                "change":{"apikeys":{"ids":[%s],"type":"rest"%s%s}}\
+                "change":{"apikeys":{"ids":[%s],"type":"rest"%s%s,"expiration":null}}\
                 """,
             bulkUpdateApiKeyRequest.getIds().stream().map(s -> Strings.format("\"%s\"", s)).collect(Collectors.joining(",")),
             bulkUpdateApiKeyRequest.getRoleDescriptors() == null ? "" : "," + roleDescriptorsStringBuilder,
@@ -872,21 +879,24 @@ public class LoggingAuditTrailTests extends ESTestCase {
             updateMetadataWithSerialization = randomApiKeyMetadataWithSerialization();
         }
 
+        final TimeValue newExpiration = randomFrom(ApiKeyTests.randomFutureExpirationTime(), null);
         final var updateRequest = new UpdateCrossClusterApiKeyRequest(
             createRequest.getId(),
             updateAccess,
-            updateMetadataWithSerialization.metadata()
+            updateMetadataWithSerialization.metadata(),
+            newExpiration
         );
         auditTrail.accessGranted(requestId, authentication, UpdateCrossClusterApiKeyAction.NAME, updateRequest, authorizationInfo);
 
         final String expectedUpdateAuditEventString = String.format(
             Locale.ROOT,
             """
-                "change":{"apikey":{"id":"%s","type":"cross_cluster"%s%s}}\
+                "change":{"apikey":{"id":"%s","type":"cross_cluster"%s%s,"expiration":%s}}\
                 """,
             createRequest.getId(),
             updateAccess == null ? "" : ",\"role_descriptors\":" + accessWithSerialization.serialization(),
-            updateRequest.getMetadata() == null ? "" : Strings.format(",\"metadata\":%s", updateMetadataWithSerialization.serialization())
+            updateRequest.getMetadata() == null ? "" : Strings.format(",\"metadata\":%s", updateMetadataWithSerialization.serialization()),
+            newExpiration == null ? null : String.format(Locale.ROOT, "\"%s\"", newExpiration)
         );
 
         output = CapturingLogger.output(logger.getName(), Level.INFO);
@@ -1337,7 +1347,7 @@ public class LoggingAuditTrailTests extends ESTestCase {
         // enable user
         setEnabledRequest.enabled(true);
         setEnabledRequest.username(username);
-        auditTrail.accessGranted(requestId, authentication, SetEnabledAction.NAME, setEnabledRequest, authorizationInfo);
+        auditTrail.accessGranted(requestId, authentication, TransportSetEnabledAction.TYPE.name(), setEnabledRequest, authorizationInfo);
         output = CapturingLogger.output(logger.getName(), Level.INFO);
         assertThat(output.size(), is(2));
         String generatedEnableUserAuditEventString = output.get(1);
@@ -1362,7 +1372,7 @@ public class LoggingAuditTrailTests extends ESTestCase {
         // disable user
         setEnabledRequest.enabled(false);
         setEnabledRequest.username(username);
-        auditTrail.accessGranted(requestId, authentication, SetEnabledAction.NAME, setEnabledRequest, authorizationInfo);
+        auditTrail.accessGranted(requestId, authentication, TransportSetEnabledAction.TYPE.name(), setEnabledRequest, authorizationInfo);
         output = CapturingLogger.output(logger.getName(), Level.INFO);
         assertThat(output.size(), is(2));
         String generatedDisableUserAuditEventString = output.get(1);
@@ -1386,7 +1396,13 @@ public class LoggingAuditTrailTests extends ESTestCase {
         changePasswordRequest.setRefreshPolicy(randomFrom(WriteRequest.RefreshPolicy.values()));
         changePasswordRequest.username(username);
         changePasswordRequest.passwordHash(randomFrom(randomAlphaOfLengthBetween(0, 8).toCharArray(), null));
-        auditTrail.accessGranted(requestId, authentication, ChangePasswordAction.NAME, changePasswordRequest, authorizationInfo);
+        auditTrail.accessGranted(
+            requestId,
+            authentication,
+            TransportChangePasswordAction.TYPE.name(),
+            changePasswordRequest,
+            authorizationInfo
+        );
         output = CapturingLogger.output(logger.getName(), Level.INFO);
         assertThat(output.size(), is(2));
         String generatedChangePasswordAuditEventString = output.get(1);
@@ -1960,8 +1976,8 @@ public class LoggingAuditTrailTests extends ESTestCase {
             new Tuple<>(PutUserAction.NAME, new PutUserRequest()),
             new Tuple<>(PutRoleAction.NAME, new PutRoleRequest()),
             new Tuple<>(PutRoleMappingAction.NAME, new PutRoleMappingRequest()),
-            new Tuple<>(SetEnabledAction.NAME, new SetEnabledRequest()),
-            new Tuple<>(ChangePasswordAction.NAME, new ChangePasswordRequest()),
+            new Tuple<>(TransportSetEnabledAction.TYPE.name(), new SetEnabledRequest()),
+            new Tuple<>(TransportChangePasswordAction.TYPE.name(), new ChangePasswordRequest()),
             new Tuple<>(CreateApiKeyAction.NAME, new CreateApiKeyRequest()),
             new Tuple<>(GrantApiKeyAction.NAME, new GrantApiKeyRequest()),
             new Tuple<>(PutPrivilegesAction.NAME, new PutPrivilegesRequest()),
@@ -3229,13 +3245,28 @@ public class LoggingAuditTrailTests extends ESTestCase {
                         {
                           "names": [
                             "logs*"
-                          ]
+                          ],
+                          "query": {
+                            "term": {
+                              "tag": 42
+                            }
+                          },
+                          "field_security": {
+                            "grant": [
+                              "*"
+                            ],
+                            "except": [
+                              "private"
+                            ]
+                          }
                         }
                       ]
                     }""",
-                "[{\"cluster\":[\"cross_cluster_search\"],"
+                "[{\"cluster\":[\"cross_cluster_search\",\"monitor_enrich\"],"
                     + "\"indices\":[{\"names\":[\"logs*\"],"
-                    + "\"privileges\":[\"read\",\"read_cross_cluster\",\"view_index_metadata\"]}],"
+                    + "\"privileges\":[\"read\",\"read_cross_cluster\",\"view_index_metadata\"],"
+                    + "\"field_security\":{\"grant\":[\"*\"],\"except\":[\"private\"]},"
+                    + "\"query\":\"{\\\"term\\\":{\\\"tag\\\":42}}\"}],"
                     + "\"applications\":[],\"run_as\":[]}]"
             ),
             new CrossClusterApiKeyAccessWithSerialization(
@@ -3261,20 +3292,7 @@ public class LoggingAuditTrailTests extends ESTestCase {
                           {
                             "names": [
                               "logs*"
-                            ],
-                            "query": {
-                              "term": {
-                                "tag": 42
-                              }
-                            },
-                            "field_security": {
-                              "grant": [
-                                "*"
-                              ],
-                              "except": [
-                                "private"
-                              ]
-                            }
+                            ]
                           }
                         ],
                         "replication": [
@@ -3286,9 +3304,8 @@ public class LoggingAuditTrailTests extends ESTestCase {
                           }
                         ]
                       }""",
-                "[{\"cluster\":[\"cross_cluster_search\",\"cross_cluster_replication\"],"
-                    + "\"indices\":[{\"names\":[\"logs*\"],\"privileges\":[\"read\",\"read_cross_cluster\",\"view_index_metadata\"],"
-                    + "\"field_security\":{\"grant\":[\"*\"],\"except\":[\"private\"]},\"query\":\"{\\\"term\\\":{\\\"tag\\\":42}}\"},"
+                "[{\"cluster\":[\"cross_cluster_search\",\"monitor_enrich\",\"cross_cluster_replication\"],"
+                    + "\"indices\":[{\"names\":[\"logs*\"],\"privileges\":[\"read\",\"read_cross_cluster\",\"view_index_metadata\"]},"
                     + "{\"names\":[\"archive\"],\"privileges\":[\"cross_cluster_replication\",\"cross_cluster_replication_internal\"],"
                     + "\"allow_restricted_indices\":true}],\"applications\":[],\"run_as\":[]}]"
             )

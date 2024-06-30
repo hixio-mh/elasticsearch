@@ -1,6 +1,8 @@
-## APM Data plugin
+NOTE: this plugin is not related to APM Metrics used in ES codebase. The APM Metrics are in :modules:apm
 
-The APM data plugin installs index templates, component templates, and ingest pipelines for Elastic APM.
+## APM Ingest plugin
+
+The APM Ingest plugin installs index templates, component templates, and ingest pipelines for Elastic APM Server.
 
 All resources are defined as YAML under [src/main/resources](src/main/resources).
 
@@ -8,6 +10,18 @@ The APM index templates rely on mappings from `x-pack-core`.
 See [x-pack/plugin/core/src/main/resources](../core/src/main/resources).
 
 This plugin is intended to work with data produced by https://github.com/elastic/apm-data.
+
+
+## Adding/Removing/Updating a resource
+
+All resources are defined as YAML under [src/main/resources](src/main/resources).
+
+For a resource to be known to the plugin it must be added to
+[src/main/resources/resources.yaml](src/main/resources/resources.yaml) in the
+appropriate section.
+
+Any update to resources included by this package also requires a bump to the
+`version` property included in the resources file.
 
 ## Testing
 
