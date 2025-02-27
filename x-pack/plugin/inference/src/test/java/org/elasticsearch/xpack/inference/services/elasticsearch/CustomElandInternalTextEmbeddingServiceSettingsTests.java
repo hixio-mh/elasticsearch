@@ -23,8 +23,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.elasticsearch.xpack.inference.services.ServiceFields.ELEMENT_TYPE;
-import static org.elasticsearch.xpack.inference.services.settings.InternalServiceSettings.NUM_ALLOCATIONS;
-import static org.elasticsearch.xpack.inference.services.settings.InternalServiceSettings.NUM_THREADS;
+import static org.elasticsearch.xpack.inference.services.elasticsearch.ElasticsearchInternalServiceSettings.NUM_ALLOCATIONS;
+import static org.elasticsearch.xpack.inference.services.elasticsearch.ElasticsearchInternalServiceSettings.NUM_THREADS;
 import static org.hamcrest.Matchers.is;
 
 public class CustomElandInternalTextEmbeddingServiceSettingsTests extends AbstractWireSerializingTestCase<
@@ -47,6 +47,8 @@ public class CustomElandInternalTextEmbeddingServiceSettingsTests extends Abstra
             numAllocations,
             numThreads,
             modelId,
+            null,
+            null,
             dims,
             similarityMeasure,
             elementType
@@ -84,6 +86,8 @@ public class CustomElandInternalTextEmbeddingServiceSettingsTests extends Abstra
                     numThreads,
                     modelId,
                     null,
+                    null,
+                    null,
                     SimilarityMeasure.DOT_PRODUCT,
                     DenseVectorFieldMapper.ElementType.FLOAT
                 )
@@ -107,6 +111,8 @@ public class CustomElandInternalTextEmbeddingServiceSettingsTests extends Abstra
                     numAllocations,
                     numThreads,
                     modelId,
+                    null,
+                    null,
                     null,
                     SimilarityMeasure.COSINE,
                     DenseVectorFieldMapper.ElementType.FLOAT
@@ -148,6 +154,8 @@ public class CustomElandInternalTextEmbeddingServiceSettingsTests extends Abstra
                     numThreads,
                     modelId,
                     null,
+                    null,
+                    null,
                     SimilarityMeasure.DOT_PRODUCT,
                     DenseVectorFieldMapper.ElementType.FLOAT
                 )
@@ -187,6 +195,8 @@ public class CustomElandInternalTextEmbeddingServiceSettingsTests extends Abstra
                     numAllocations,
                     numThreads,
                     modelId,
+                    null,
+                    null,
                     1,
                     SimilarityMeasure.DOT_PRODUCT,
                     DenseVectorFieldMapper.ElementType.FLOAT
@@ -200,6 +210,8 @@ public class CustomElandInternalTextEmbeddingServiceSettingsTests extends Abstra
             1,
             1,
             "model_id",
+            null,
+            null,
             100,
             SimilarityMeasure.COSINE,
             DenseVectorFieldMapper.ElementType.BYTE

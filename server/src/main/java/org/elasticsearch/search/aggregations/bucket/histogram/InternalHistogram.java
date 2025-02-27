@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 package org.elasticsearch.search.aggregations.bucket.histogram;
 
@@ -44,31 +45,20 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
     implements
         Histogram,
         HistogramFactory {
-    public static class Bucket extends InternalMultiBucketAggregation.InternalBucket implements Histogram.Bucket, KeyComparable<Bucket> {
+    public static class Bucket extends AbstractHistogramBucket implements KeyComparable<Bucket> {
 
         final double key;
-        final long docCount;
-        final InternalAggregations aggregations;
-        private final transient boolean keyed;
-        protected final transient DocValueFormat format;
 
-        public Bucket(double key, long docCount, boolean keyed, DocValueFormat format, InternalAggregations aggregations) {
-            this.format = format;
-            this.keyed = keyed;
+        public Bucket(double key, long docCount, DocValueFormat format, InternalAggregations aggregations) {
+            super(docCount, aggregations, format);
             this.key = key;
-            this.docCount = docCount;
-            this.aggregations = aggregations;
         }
 
         /**
          * Read from a stream.
          */
-        public Bucket(StreamInput in, boolean keyed, DocValueFormat format) throws IOException {
-            this.format = format;
-            this.keyed = keyed;
-            key = in.readDouble();
-            docCount = in.readVLong();
-            aggregations = InternalAggregations.readFrom(in);
+        public static Bucket readFrom(StreamInput in, DocValueFormat format) throws IOException {
+            return new Bucket(in.readDouble(), in.readVLong(), format, InternalAggregations.readFrom(in));
         }
 
         @Override
@@ -104,18 +94,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
             return key;
         }
 
-        @Override
-        public long getDocCount() {
-            return docCount;
-        }
-
-        @Override
-        public InternalAggregations getAggregations() {
-            return aggregations;
-        }
-
-        @Override
-        public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
+        private void bucketToXContent(XContentBuilder builder, Params params, boolean keyed) throws IOException {
             String keyAsString = format.format(key).toString();
             if (keyed) {
                 builder.startObject(keyAsString);
@@ -129,7 +108,6 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
             builder.field(CommonFields.DOC_COUNT.getPreferredName(), docCount);
             aggregations.toXContentInternal(builder, params);
             builder.endObject();
-            return builder;
         }
 
         @Override
@@ -137,19 +115,10 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
             return Double.compare(key, other.key);
         }
 
-        public DocValueFormat getFormatter() {
-            return format;
-        }
-
-        public boolean getKeyed() {
-            return keyed;
-        }
-
         Bucket finalizeSampling(SamplingContext samplingContext) {
             return new Bucket(
                 key,
                 samplingContext.scaleUp(docCount),
-                keyed,
                 format,
                 InternalAggregations.finalizeSampling(aggregations, samplingContext)
             );
@@ -242,9 +211,9 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
         }
         format = in.readNamedWriteable(DocValueFormat.class);
         keyed = in.readBoolean();
-        buckets = in.readCollectionAsList(stream -> new Bucket(stream, keyed, format));
+        buckets = in.readCollectionAsList(stream -> Bucket.readFrom(stream, format));
         // we changed the order format in 8.13 for partial reduce, therefore we need to order them to perform merge sort
-        if (in.getTransportVersion().between(TransportVersions.V_8_13_0, TransportVersions.HISTOGRAM_AGGS_KEY_SORTED)) {
+        if (in.getTransportVersion().between(TransportVersions.V_8_13_0, TransportVersions.V_8_14_0)) {
             // list is mutable by #readCollectionAsList contract
             buckets.sort(Comparator.comparingDouble(b -> b.key));
         }
@@ -287,7 +256,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
 
     @Override
     public Bucket createBucket(InternalAggregations aggregations, Bucket prototype) {
-        return new Bucket(prototype.key, prototype.docCount, prototype.keyed, prototype.format, aggregations);
+        return new Bucket(prototype.key, prototype.docCount, prototype.format, aggregations);
     }
 
     private List<Bucket> reduceBuckets(PriorityQueue<IteratorAndCurrent<Bucket>> pq, AggregationReduceContext reduceContext) {
@@ -380,10 +349,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
         /*
          * Now that we're sure we have space we allocate all the buckets.
          */
-        InternalAggregations reducedEmptySubAggs = InternalAggregations.reduce(
-            Collections.singletonList(emptyBucketInfo.subAggregations),
-            reduceContext
-        );
+        InternalAggregations reducedEmptySubAggs = InternalAggregations.reduce(emptyBucketInfo.subAggregations, reduceContext);
         ListIterator<Bucket> iter = list.listIterator();
         iterateEmptyBuckets(list, iter, new DoubleConsumer() {
             private int size;
@@ -395,7 +361,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
                     reduceContext.consumeBucketsAndMaybeBreak(size);
                     size = 0;
                 }
-                iter.add(new Bucket(key, 0, keyed, format, reducedEmptySubAggs));
+                iter.add(new Bucket(key, 0, format, reducedEmptySubAggs));
             }
         });
     }
@@ -465,9 +431,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
                     }
                     if (InternalOrder.isKeyDesc(order)) {
                         // we just need to reverse here...
-                        List<Bucket> reverse = new ArrayList<>(reducedBuckets);
-                        Collections.reverse(reverse);
-                        reducedBuckets = reverse;
+                        Collections.reverse(reducedBuckets);
                     } else if (InternalOrder.isKeyAsc(order) == false) {
                         // nothing to do when sorting by key ascending, as data is already sorted since shards return
                         // sorted buckets and the merge-sort performed by reduceBuckets maintains order.
@@ -502,7 +466,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
             builder.startArray(CommonFields.BUCKETS.getPreferredName());
         }
         for (Bucket bucket : buckets) {
-            bucket.toXContent(builder, params);
+            bucket.bucketToXContent(builder, params, keyed);
         }
         if (keyed) {
             builder.endObject();
@@ -532,7 +496,7 @@ public class InternalHistogram extends InternalMultiBucketAggregation<InternalHi
 
     @Override
     public Bucket createBucket(Number key, long docCount, InternalAggregations aggregations) {
-        return new Bucket(key.doubleValue(), docCount, keyed, format, aggregations);
+        return new Bucket(key.doubleValue(), docCount, format, aggregations);
     }
 
     @Override

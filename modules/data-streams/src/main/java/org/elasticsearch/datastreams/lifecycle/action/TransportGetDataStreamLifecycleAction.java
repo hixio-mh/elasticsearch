@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 package org.elasticsearch.datastreams.lifecycle.action;
 
@@ -11,18 +12,19 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.datastreams.DataStreamsActionUtil;
 import org.elasticsearch.action.datastreams.lifecycle.GetDataStreamLifecycleAction;
 import org.elasticsearch.action.support.ActionFilters;
-import org.elasticsearch.action.support.master.TransportMasterNodeReadAction;
-import org.elasticsearch.cluster.ClusterState;
+import org.elasticsearch.action.support.master.TransportMasterNodeReadProjectAction;
+import org.elasticsearch.cluster.ProjectState;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.DataStream;
-import org.elasticsearch.cluster.metadata.DataStreamGlobalRetentionResolver;
+import org.elasticsearch.cluster.metadata.DataStreamGlobalRetentionSettings;
 import org.elasticsearch.cluster.metadata.DataStreamLifecycle;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
+import org.elasticsearch.cluster.project.ProjectResolver;
 import org.elasticsearch.cluster.service.ClusterService;
-import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
+import org.elasticsearch.injection.guice.Inject;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
@@ -36,11 +38,12 @@ import java.util.Objects;
  * Collects the data streams from the cluster state, filters the ones that do not have a data stream lifecycle configured and then returns
  * a list of the data stream name and respective lifecycle configuration.
  */
-public class TransportGetDataStreamLifecycleAction extends TransportMasterNodeReadAction<
+public class TransportGetDataStreamLifecycleAction extends TransportMasterNodeReadProjectAction<
     GetDataStreamLifecycleAction.Request,
     GetDataStreamLifecycleAction.Response> {
     private final ClusterSettings clusterSettings;
-    private final DataStreamGlobalRetentionResolver globalRetentionResolver;
+    private final IndexNameExpressionResolver indexNameExpressionResolver;
+    private final DataStreamGlobalRetentionSettings globalRetentionSettings;
 
     @Inject
     public TransportGetDataStreamLifecycleAction(
@@ -48,8 +51,9 @@ public class TransportGetDataStreamLifecycleAction extends TransportMasterNodeRe
         ClusterService clusterService,
         ThreadPool threadPool,
         ActionFilters actionFilters,
+        ProjectResolver projectResolver,
         IndexNameExpressionResolver indexNameExpressionResolver,
-        DataStreamGlobalRetentionResolver globalRetentionResolver
+        DataStreamGlobalRetentionSettings globalRetentionSettings
     ) {
         super(
             GetDataStreamLifecycleAction.INSTANCE.name(),
@@ -58,24 +62,25 @@ public class TransportGetDataStreamLifecycleAction extends TransportMasterNodeRe
             threadPool,
             actionFilters,
             GetDataStreamLifecycleAction.Request::new,
-            indexNameExpressionResolver,
+            projectResolver,
             GetDataStreamLifecycleAction.Response::new,
             EsExecutors.DIRECT_EXECUTOR_SERVICE
         );
         clusterSettings = clusterService.getClusterSettings();
-        this.globalRetentionResolver = globalRetentionResolver;
+        this.indexNameExpressionResolver = indexNameExpressionResolver;
+        this.globalRetentionSettings = globalRetentionSettings;
     }
 
     @Override
     protected void masterOperation(
         Task task,
         GetDataStreamLifecycleAction.Request request,
-        ClusterState state,
+        ProjectState state,
         ActionListener<GetDataStreamLifecycleAction.Response> listener
     ) {
         List<String> results = DataStreamsActionUtil.getDataStreamNames(
             indexNameExpressionResolver,
-            state,
+            state.metadata(),
             request.getNames(),
             request.indicesOptions()
         );
@@ -96,13 +101,13 @@ public class TransportGetDataStreamLifecycleAction extends TransportMasterNodeRe
                     .sorted(Comparator.comparing(GetDataStreamLifecycleAction.Response.DataStreamLifecycle::dataStreamName))
                     .toList(),
                 request.includeDefaults() ? clusterSettings.get(DataStreamLifecycle.CLUSTER_LIFECYCLE_DEFAULT_ROLLOVER_SETTING) : null,
-                globalRetentionResolver.resolve(state)
+                globalRetentionSettings.get()
             )
         );
     }
 
     @Override
-    protected ClusterBlockException checkBlock(GetDataStreamLifecycleAction.Request request, ClusterState state) {
+    protected ClusterBlockException checkBlock(GetDataStreamLifecycleAction.Request request, ProjectState state) {
         return state.blocks().globalBlockedException(ClusterBlockLevel.METADATA_READ);
     }
 }

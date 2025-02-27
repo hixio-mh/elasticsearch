@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.common.file;
@@ -27,17 +28,19 @@ import org.junit.Before;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ESTestCase.WithoutSecurityManager
 public class MasterNodeFileWatchingServiceTests extends ESTestCase {
 
     static final DiscoveryNode localNode = DiscoveryNodeUtils.create("local-node");
     MasterNodeFileWatchingService testService;
     Path watchedFile;
-    Runnable fileChangedCallback;
+    Consumer<Path> fileChangedCallback;
 
     @Before
     public void setupTestService() throws IOException {
@@ -47,16 +50,16 @@ public class MasterNodeFileWatchingServiceTests extends ESTestCase {
             .put(NodeRoleSettings.NODE_ROLES_SETTING.getKey(), DiscoveryNodeRole.MASTER_ROLE.roleName())
             .build();
         when(clusterService.getSettings()).thenReturn(settings);
-        fileChangedCallback = () -> {};
-        testService = new MasterNodeFileWatchingService(clusterService, watchedFile) {
+        fileChangedCallback = f -> {};
+        testService = new MasterNodeFileWatchingService(clusterService, watchedFile.getParent()) {
 
             @Override
-            protected void processFileChanges() throws InterruptedException, ExecutionException, IOException {
-                fileChangedCallback.run();
+            protected void processFileChanges(Path file) throws InterruptedException, ExecutionException, IOException {
+                fileChangedCallback.accept(file);
             }
 
             @Override
-            protected void processInitialFileMissing() throws InterruptedException, ExecutionException, IOException {
+            protected void processInitialFilesMissing() throws InterruptedException, ExecutionException, IOException {
                 // file always exists, but we don't care about the missing case for master node behavior
             }
         };

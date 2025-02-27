@@ -9,7 +9,6 @@ package org.elasticsearch.xpack.slm.action;
 
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.reservedstate.ReservedClusterStateHandler;
 import org.elasticsearch.reservedstate.TransformState;
 import org.elasticsearch.xcontent.XContentParser;
@@ -37,11 +36,9 @@ import static org.elasticsearch.common.xcontent.XContentHelper.mapToXContentPars
  * Internally it uses {@link TransportPutSnapshotLifecycleAction} and
  * {@link TransportDeleteSnapshotLifecycleAction} to add, update and delete ILM policies.
  */
-public class ReservedSnapshotAction implements ReservedClusterStateHandler<List<SnapshotLifecyclePolicy>> {
+public class ReservedSnapshotAction implements ReservedClusterStateHandler<ClusterState, List<SnapshotLifecyclePolicy>> {
 
     public static final String NAME = "slm";
-
-    public ReservedSnapshotAction() {}
 
     @Override
     public String name() {
@@ -54,10 +51,9 @@ public class ReservedSnapshotAction implements ReservedClusterStateHandler<List<
         List<Exception> exceptions = new ArrayList<>();
 
         for (var policy : policies) {
-            // timeouts don't matter here
             PutSnapshotLifecycleAction.Request request = new PutSnapshotLifecycleAction.Request(
-                TimeValue.THIRTY_SECONDS,
-                TimeValue.THIRTY_SECONDS,
+                RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT,
+                RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT,
                 policy.getId(),
                 policy
             );
@@ -81,9 +77,9 @@ public class ReservedSnapshotAction implements ReservedClusterStateHandler<List<
     }
 
     @Override
-    public TransformState transform(Object source, TransformState prevState) throws Exception {
-        @SuppressWarnings("unchecked")
-        var requests = prepare((List<SnapshotLifecyclePolicy>) source, prevState.state());
+    public TransformState<ClusterState> transform(List<SnapshotLifecyclePolicy> source, TransformState<ClusterState> prevState)
+        throws Exception {
+        var requests = prepare(source, prevState.state());
 
         ClusterState state = prevState.state();
 
@@ -100,15 +96,18 @@ public class ReservedSnapshotAction implements ReservedClusterStateHandler<List<
         toDelete.removeAll(entities);
 
         for (var policyToDelete : toDelete) {
-            // timeouts don't matter here
             var task = new TransportDeleteSnapshotLifecycleAction.DeleteSnapshotPolicyTask(
-                new DeleteSnapshotLifecycleAction.Request(TimeValue.THIRTY_SECONDS, TimeValue.THIRTY_SECONDS, policyToDelete),
+                new DeleteSnapshotLifecycleAction.Request(
+                    RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT,
+                    RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT,
+                    policyToDelete
+                ),
                 ActionListener.noop()
             );
             state = task.execute(state);
         }
 
-        return new TransformState(state, entities);
+        return new TransformState<>(state, entities);
     }
 
     @Override

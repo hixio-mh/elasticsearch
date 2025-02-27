@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.reservedstate;
@@ -27,8 +28,11 @@ import java.util.Collections;
  * by the REST handlers. The only way the reserved cluster state can be updated is through the 'operator mode' actions, e.g. updating
  * the file settings.
  * </p>
+ *
+ * @param <S> The state type to be updated by this handler
+ * @param <T> The type used to represent the state update
  */
-public interface ReservedClusterStateHandler<T> {
+public interface ReservedClusterStateHandler<S, T> {
     /**
      * Unique identifier for the handler.
      *
@@ -59,7 +63,7 @@ public interface ReservedClusterStateHandler<T> {
      * @return The modified state and the current keys set by this handler
      * @throws Exception
      */
-    TransformState transform(Object source, TransformState prevState) throws Exception;
+    TransformState<S> transform(T source, TransformState<S> prevState) throws Exception;
 
     /**
      * List of dependent handler names for this handler.
@@ -126,5 +130,5 @@ public interface ReservedClusterStateHandler<T> {
     /**
      * Reserved-state handlers create master-node requests but never actually send them to the master node so the timeouts are not relevant.
      */
-    TimeValue DUMMY_TIMEOUT = TimeValue.THIRTY_SECONDS;
+    TimeValue RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT = TimeValue.THIRTY_SECONDS;
 }

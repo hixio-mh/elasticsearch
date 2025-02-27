@@ -13,7 +13,7 @@ import org.elasticsearch.core.ReleasableIterator;
 
 /**
  * Vector implementation that stores a constant float value.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code X-ConstantVector.java.st} instead.
  */
 final class ConstantFloatVector extends AbstractVector implements FloatVector {
 
@@ -39,6 +39,32 @@ final class ConstantFloatVector extends AbstractVector implements FloatVector {
     @Override
     public FloatVector filter(int... positions) {
         return blockFactory().newConstantFloatVector(value, positions.length);
+    }
+
+    @Override
+    public FloatBlock keepMask(BooleanVector mask) {
+        if (getPositionCount() == 0) {
+            incRef();
+            return new FloatVectorBlock(this);
+        }
+        if (mask.isConstant()) {
+            if (mask.getBoolean(0)) {
+                incRef();
+                return new FloatVectorBlock(this);
+            }
+            return (FloatBlock) blockFactory().newConstantNullBlock(getPositionCount());
+        }
+        try (FloatBlock.Builder builder = blockFactory().newFloatBlockBuilder(getPositionCount())) {
+            // TODO if X-ArrayBlock used BooleanVector for it's null mask then we could shuffle references here.
+            for (int p = 0; p < getPositionCount(); p++) {
+                if (mask.getBoolean(p)) {
+                    builder.appendFloat(value);
+                } else {
+                    builder.appendNull();
+                }
+            }
+            return builder.build();
+        }
     }
 
     @Override

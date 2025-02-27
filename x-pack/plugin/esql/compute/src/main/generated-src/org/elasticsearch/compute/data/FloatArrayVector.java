@@ -19,7 +19,7 @@ import java.util.stream.IntStream;
 
 /**
  * Vector implementation that stores an array of float values.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code X-ArrayVector.java.st} instead.
  */
 final class FloatArrayVector extends AbstractVector implements FloatVector {
 
@@ -87,6 +87,32 @@ final class FloatArrayVector extends AbstractVector implements FloatVector {
         try (FloatVector.Builder builder = blockFactory().newFloatVectorBuilder(positions.length)) {
             for (int pos : positions) {
                 builder.appendFloat(values[pos]);
+            }
+            return builder.build();
+        }
+    }
+
+    @Override
+    public FloatBlock keepMask(BooleanVector mask) {
+        if (getPositionCount() == 0) {
+            incRef();
+            return new FloatVectorBlock(this);
+        }
+        if (mask.isConstant()) {
+            if (mask.getBoolean(0)) {
+                incRef();
+                return new FloatVectorBlock(this);
+            }
+            return (FloatBlock) blockFactory().newConstantNullBlock(getPositionCount());
+        }
+        try (FloatBlock.Builder builder = blockFactory().newFloatBlockBuilder(getPositionCount())) {
+            // TODO if X-ArrayBlock used BooleanVector for it's null mask then we could shuffle references here.
+            for (int p = 0; p < getPositionCount(); p++) {
+                if (mask.getBoolean(p)) {
+                    builder.appendFloat(getFloat(p));
+                } else {
+                    builder.appendNull();
+                }
             }
             return builder.build();
         }

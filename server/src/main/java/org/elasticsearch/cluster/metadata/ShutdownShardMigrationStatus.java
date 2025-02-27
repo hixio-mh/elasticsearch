@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.cluster.metadata;
@@ -16,6 +17,7 @@ import org.elasticsearch.common.collect.Iterators;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
+import org.elasticsearch.common.xcontent.ChunkedToXContentHelper;
 import org.elasticsearch.common.xcontent.ChunkedToXContentObject;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.xcontent.ToXContent;
@@ -26,8 +28,8 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.Objects;
 
+import static org.elasticsearch.common.xcontent.ChunkedToXContentHelper.chunk;
 import static org.elasticsearch.common.xcontent.ChunkedToXContentHelper.endObject;
-import static org.elasticsearch.common.xcontent.ChunkedToXContentHelper.singleChunk;
 import static org.elasticsearch.common.xcontent.ChunkedToXContentHelper.startObject;
 
 public class ShutdownShardMigrationStatus implements Writeable, ChunkedToXContentObject {
@@ -167,9 +169,9 @@ public class ShutdownShardMigrationStatus implements Writeable, ChunkedToXConten
     public Iterator<? extends ToXContent> toXContentChunked(ToXContent.Params params) {
         return Iterators.concat(
             startObject(),
-            singleChunk((builder, p) -> buildHeader(builder)),
+            chunk((builder, p) -> buildHeader(builder)),
             Objects.nonNull(allocationDecision)
-                ? Iterators.concat(startObject(NODE_ALLOCATION_DECISION_KEY), allocationDecision.toXContentChunked(params), endObject())
+                ? ChunkedToXContentHelper.object(NODE_ALLOCATION_DECISION_KEY, allocationDecision.toXContentChunked(params))
                 : Collections.emptyIterator(),
             endObject()
         );

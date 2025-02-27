@@ -13,7 +13,7 @@ import org.elasticsearch.core.Releasables;
 
 /**
  * Block view of a {@link FloatVector}. Cannot represent multi-values or nulls.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code X-VectorBlock.java.st} instead.
  */
 public final class FloatVectorBlock extends AbstractVectorBlock implements FloatBlock {
 
@@ -49,6 +49,11 @@ public final class FloatVectorBlock extends AbstractVectorBlock implements Float
     @Override
     public FloatBlock filter(int... positions) {
         return vector.filter(positions).asBlock();
+    }
+
+    @Override
+    public FloatBlock keepMask(BooleanVector mask) {
+        return vector.keepMask(mask);
     }
 
     @Override

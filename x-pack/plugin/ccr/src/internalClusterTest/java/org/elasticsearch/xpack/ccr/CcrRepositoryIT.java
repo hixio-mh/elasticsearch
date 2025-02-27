@@ -173,21 +173,21 @@ public class CcrRepositoryIT extends CcrIntegTestCase {
 
         ClusterStateResponse leaderState = leaderClient().admin()
             .cluster()
-            .prepareState()
+            .prepareState(TEST_REQUEST_TIMEOUT)
             .clear()
             .setMetadata(true)
             .setIndices(leaderIndex)
             .get();
         ClusterStateResponse followerState = followerClient().admin()
             .cluster()
-            .prepareState()
+            .prepareState(TEST_REQUEST_TIMEOUT)
             .clear()
             .setMetadata(true)
             .setIndices(followerIndex)
             .get();
 
-        IndexMetadata leaderMetadata = leaderState.getState().metadata().index(leaderIndex);
-        IndexMetadata followerMetadata = followerState.getState().metadata().index(followerIndex);
+        IndexMetadata leaderMetadata = leaderState.getState().metadata().getProject().index(leaderIndex);
+        IndexMetadata followerMetadata = followerState.getState().metadata().getProject().index(followerIndex);
         assertEquals(leaderMetadata.getNumberOfShards(), followerMetadata.getNumberOfShards());
         Map<String, String> ccrMetadata = followerMetadata.getCustomData(Ccr.CCR_CUSTOM_METADATA_KEY);
         assertEquals(leaderIndex, ccrMetadata.get(Ccr.CCR_CUSTOM_METADATA_LEADER_INDEX_NAME_KEY));
@@ -402,7 +402,7 @@ public class CcrRepositoryIT extends CcrIntegTestCase {
                 transportService.clearAllRules();
             }
 
-            settingsRequest = new ClusterUpdateSettingsRequest();
+            settingsRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
             TimeValue defaultValue = CcrSettings.INDICES_RECOVERY_ACTION_TIMEOUT_SETTING.getDefault(Settings.EMPTY);
             settingsRequest.persistentSettings(
                 Settings.builder().put(CcrSettings.INDICES_RECOVERY_ACTION_TIMEOUT_SETTING.getKey(), defaultValue)
@@ -417,7 +417,7 @@ public class CcrRepositoryIT extends CcrIntegTestCase {
     }
 
     private ClusterUpdateSettingsRequest newSettingsRequest() {
-        return new ClusterUpdateSettingsRequest().masterNodeTimeout(TimeValue.MAX_VALUE);
+        return new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT).masterNodeTimeout(TimeValue.MAX_VALUE);
     }
 
     public void testFollowerMappingIsUpdated() throws IOException {
@@ -482,13 +482,13 @@ public class CcrRepositoryIT extends CcrIntegTestCase {
             assertEquals(restoreInfo.totalShards(), restoreInfo.successfulShards());
             assertEquals(0, restoreInfo.failedShards());
 
-            ClusterStateRequest clusterStateRequest = new ClusterStateRequest();
+            ClusterStateRequest clusterStateRequest = new ClusterStateRequest(TEST_REQUEST_TIMEOUT);
             clusterStateRequest.clear();
             clusterStateRequest.metadata(true);
             clusterStateRequest.indices(followerIndex);
             MappingMetadata mappingMetadata = followerClient().admin()
                 .indices()
-                .prepareGetMappings("index2")
+                .prepareGetMappings(TEST_REQUEST_TIMEOUT, "index2")
                 .get()
                 .getMappings()
                 .get("index2");

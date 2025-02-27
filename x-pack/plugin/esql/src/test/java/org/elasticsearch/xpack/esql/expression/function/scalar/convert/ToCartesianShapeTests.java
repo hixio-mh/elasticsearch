@@ -50,8 +50,8 @@ public class ToCartesianShapeTests extends AbstractScalarFunctionTestCase {
             bytesRef -> {
                 var exception = expectThrows(Exception.class, () -> CARTESIAN.wktToWkb(bytesRef.utf8ToString()));
                 return List.of(
-                    "Line -1:-1: evaluation of [] failed, treating result as null. Only first 20 failures recorded.",
-                    "Line -1:-1: " + exception
+                    "Line 1:1: evaluation of [source] failed, treating result as null. Only first 20 failures recorded.",
+                    "Line 1:1: " + exception
                 );
             }
         );
@@ -73,7 +73,7 @@ public class ToCartesianShapeTests extends AbstractScalarFunctionTestCase {
             );
         }
 
-        return parameterSuppliersFromTypedDataWithDefaultChecks(true, suppliers);
+        return parameterSuppliersFromTypedDataWithDefaultChecksNoErrors(true, suppliers);
     }
 
     @Override

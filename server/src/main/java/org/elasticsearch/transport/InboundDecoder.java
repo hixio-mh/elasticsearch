@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.transport;
@@ -17,12 +18,12 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.recycler.Recycler;
 import org.elasticsearch.common.unit.ByteSizeUnit;
 import org.elasticsearch.common.unit.ByteSizeValue;
+import org.elasticsearch.core.CheckedConsumer;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
 
 import java.io.IOException;
 import java.io.StreamCorruptedException;
-import java.util.function.Consumer;
 
 public class InboundDecoder implements Releasable {
 
@@ -39,11 +40,11 @@ public class InboundDecoder implements Releasable {
     private final ChannelType channelType;
 
     public InboundDecoder(Recycler<BytesRef> recycler) {
-        this(recycler, new ByteSizeValue(2, ByteSizeUnit.GB), ChannelType.MIX);
+        this(recycler, ByteSizeValue.of(2, ByteSizeUnit.GB), ChannelType.MIX);
     }
 
     public InboundDecoder(Recycler<BytesRef> recycler, ChannelType channelType) {
-        this(recycler, new ByteSizeValue(2, ByteSizeUnit.GB), channelType);
+        this(recycler, ByteSizeValue.of(2, ByteSizeUnit.GB), channelType);
     }
 
     public InboundDecoder(Recycler<BytesRef> recycler, ByteSizeValue maxHeaderSize, ChannelType channelType) {
@@ -52,7 +53,7 @@ public class InboundDecoder implements Releasable {
         this.channelType = channelType;
     }
 
-    public int decode(ReleasableBytesReference reference, Consumer<Object> fragmentConsumer) throws IOException {
+    public int decode(ReleasableBytesReference reference, CheckedConsumer<Object, IOException> fragmentConsumer) throws IOException {
         ensureOpen();
         try {
             return internalDecode(reference, fragmentConsumer);
@@ -62,7 +63,8 @@ public class InboundDecoder implements Releasable {
         }
     }
 
-    public int internalDecode(ReleasableBytesReference reference, Consumer<Object> fragmentConsumer) throws IOException {
+    public int internalDecode(ReleasableBytesReference reference, CheckedConsumer<Object, IOException> fragmentConsumer)
+        throws IOException {
         if (isOnHeader()) {
             int messageLength = TcpTransport.readMessageLength(reference);
             if (messageLength == -1) {
@@ -103,25 +105,28 @@ public class InboundDecoder implements Releasable {
             }
             int remainingToConsume = totalNetworkSize - bytesConsumed;
             int maxBytesToConsume = Math.min(reference.length(), remainingToConsume);
-            ReleasableBytesReference retainedContent;
-            if (maxBytesToConsume == remainingToConsume) {
-                retainedContent = reference.retainedSlice(0, maxBytesToConsume);
-            } else {
-                retainedContent = reference.retain();
-            }
-
             int bytesConsumedThisDecode = 0;
             if (decompressor != null) {
-                bytesConsumedThisDecode += decompress(retainedContent);
+                bytesConsumedThisDecode += decompressor.decompress(
+                    maxBytesToConsume == remainingToConsume ? reference.slice(0, maxBytesToConsume) : reference
+                );
                 bytesConsumed += bytesConsumedThisDecode;
                 ReleasableBytesReference decompressed;
                 while ((decompressed = decompressor.pollDecompressedPage(isDone())) != null) {
-                    fragmentConsumer.accept(decompressed);
+                    try (var buf = decompressed) {
+                        fragmentConsumer.accept(buf);
+                    }
                 }
             } else {
                 bytesConsumedThisDecode += maxBytesToConsume;
                 bytesConsumed += maxBytesToConsume;
-                fragmentConsumer.accept(retainedContent);
+                if (maxBytesToConsume == remainingToConsume) {
+                    try (ReleasableBytesReference retained = reference.retainedSlice(0, maxBytesToConsume)) {
+                        fragmentConsumer.accept(retained);
+                    }
+                } else {
+                    fragmentConsumer.accept(reference);
+                }
             }
             if (isDone()) {
                 finishMessage(fragmentConsumer);
@@ -137,7 +142,7 @@ public class InboundDecoder implements Releasable {
         cleanDecodeState();
     }
 
-    private void finishMessage(Consumer<Object> fragmentConsumer) {
+    private void finishMessage(CheckedConsumer<Object, IOException> fragmentConsumer) throws IOException {
         cleanDecodeState();
         fragmentConsumer.accept(END_CONTENT);
     }
@@ -150,12 +155,6 @@ public class InboundDecoder implements Releasable {
             decompressor = null;
             totalNetworkSize = -1;
             bytesConsumed = 0;
-        }
-    }
-
-    private int decompress(ReleasableBytesReference content) throws IOException {
-        try (content) {
-            return decompressor.decompress(content);
         }
     }
 

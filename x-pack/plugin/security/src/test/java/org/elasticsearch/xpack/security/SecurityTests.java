@@ -14,13 +14,14 @@ import org.elasticsearch.ElasticsearchSecurityException;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionModule;
 import org.elasticsearch.action.ActionResponse;
-import org.elasticsearch.action.support.PlainActionFuture;
+import org.elasticsearch.action.bulk.IncrementalBulkService;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodeUtils;
+import org.elasticsearch.cluster.project.TestProjectResolvers;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.logging.Loggers;
@@ -32,14 +33,11 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.settings.SettingsModule;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.core.TimeValue;
-import org.elasticsearch.env.BuildVersion;
 import org.elasticsearch.env.Environment;
-import org.elasticsearch.env.NodeMetadata;
 import org.elasticsearch.env.TestEnvironment;
 import org.elasticsearch.features.FeatureService;
 import org.elasticsearch.index.IndexModule;
 import org.elasticsearch.index.IndexSettings;
-import org.elasticsearch.index.IndexVersion;
 import org.elasticsearch.index.IndexVersions;
 import org.elasticsearch.index.SlowLogFieldProvider;
 import org.elasticsearch.index.analysis.AnalysisRegistry;
@@ -152,7 +150,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class SecurityTests extends ESTestCase {
-
     private Security security = null;
     private ThreadContext threadContext = null;
     private SecurityContext securityContext = null;
@@ -204,7 +201,6 @@ public class SecurityTests extends ESTestCase {
 
     private Collection<Object> createComponentsUtil(Settings settings) throws Exception {
         Environment env = TestEnvironment.newEnvironment(settings);
-        NodeMetadata nodeMetadata = new NodeMetadata(randomAlphaOfLength(8), BuildVersion.current(), IndexVersion.current());
         ThreadPool threadPool = mock(ThreadPool.class);
         ClusterService clusterService = mock(ClusterService.class);
         settings = Security.additionalSettings(settings, true);
@@ -228,10 +224,10 @@ public class SecurityTests extends ESTestCase {
             mock(ScriptService.class),
             xContentRegistry(),
             env,
-            nodeMetadata,
             TestIndexNameExpressionResolver.newInstance(threadContext),
             TelemetryProvider.NOOP,
-            mock(PersistentTasksService.class)
+            mock(PersistentTasksService.class),
+            TestProjectResolvers.singleProjectOnly()
         );
     }
 
@@ -378,7 +374,8 @@ public class SecurityTests extends ESTestCase {
             TestIndexNameExpressionResolver.newInstance(threadPool.getThreadContext()),
             Collections.emptyMap(),
             mock(SlowLogFieldProvider.class),
-            MapperMetrics.NOOP
+            MapperMetrics.NOOP,
+            List.of()
         );
         security.onIndexModule(indexModule);
         // indexReaderWrapper is a SetOnce so if Security#onIndexModule had already set an ReaderWrapper we would get an exception here
@@ -548,7 +545,7 @@ public class SecurityTests extends ESTestCase {
             .put(
                 XPackSettings.PASSWORD_HASHING_ALGORITHM.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash()
+                    Hasher.getAvailableAlgoStoredPasswordHash()
                         .stream()
                         .filter(alg -> alg.startsWith("pbkdf2") == false)
                         .collect(Collectors.toList())
@@ -567,7 +564,10 @@ public class SecurityTests extends ESTestCase {
             .put(
                 XPackSettings.PASSWORD_HASHING_ALGORITHM.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash().stream().filter(alg -> alg.startsWith("pbkdf2")).collect(Collectors.toList())
+                    Hasher.getAvailableAlgoStoredPasswordHash()
+                        .stream()
+                        .filter(alg -> alg.startsWith("pbkdf2"))
+                        .collect(Collectors.toList())
                 )
             )
             .build();
@@ -581,7 +581,7 @@ public class SecurityTests extends ESTestCase {
             .put(
                 XPackSettings.PASSWORD_HASHING_ALGORITHM.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash()
+                    Hasher.getAvailableAlgoStoredPasswordHash()
                         .stream()
                         .filter(alg -> alg.startsWith("pbkdf2") == false)
                         .collect(Collectors.toList())
@@ -626,7 +626,7 @@ public class SecurityTests extends ESTestCase {
             .put(
                 XPackSettings.PASSWORD_HASHING_ALGORITHM.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash()
+                    Hasher.getAvailableAlgoStoredPasswordHash()
                         .stream()
                         .filter(alg -> alg.startsWith("pbkdf2") == false)
                         .collect(Collectors.toList())
@@ -646,19 +646,28 @@ public class SecurityTests extends ESTestCase {
             .put(
                 XPackSettings.PASSWORD_HASHING_ALGORITHM.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash().stream().filter(alg -> alg.startsWith("pbkdf2")).collect(Collectors.toList())
+                    Hasher.getAvailableAlgoStoredPasswordHash()
+                        .stream()
+                        .filter(alg -> alg.startsWith("pbkdf2"))
+                        .collect(Collectors.toList())
                 )
             )
             .put(
                 XPackSettings.SERVICE_TOKEN_HASHING_ALGORITHM.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash().stream().filter(alg -> alg.startsWith("pbkdf2")).collect(Collectors.toList())
+                    Hasher.getAvailableAlgoStoredPasswordHash()
+                        .stream()
+                        .filter(alg -> alg.startsWith("pbkdf2"))
+                        .collect(Collectors.toList())
                 )
             )
             .put(
-                ApiKeyService.PASSWORD_HASHING_ALGORITHM.getKey(),
+                ApiKeyService.STORED_HASH_ALGO_SETTING.getKey(),
                 randomFrom(
-                    Hasher.getAvailableAlgoStoredHash().stream().filter(alg -> alg.startsWith("pbkdf2")).collect(Collectors.toList())
+                    Hasher.getAvailableAlgoStoredPasswordHash()
+                        .stream()
+                        .filter(alg -> alg.startsWith("pbkdf2"))
+                        .collect(Collectors.toList())
                 )
             )
             .put(
@@ -683,13 +692,37 @@ public class SecurityTests extends ESTestCase {
         assertThatLogger(() -> Security.validateForFips(settings), Security.class, logEventForNonCompliantCacheHash(key));
     }
 
-    public void testValidateForFipsNonFipsCompliantStoredHashAlgoWarningLog() throws IllegalAccessException {
-        String key = randomFrom(ApiKeyService.PASSWORD_HASHING_ALGORITHM, XPackSettings.SERVICE_TOKEN_HASHING_ALGORITHM).getKey();
+    public void testValidateForFipsNonFipsCompliantStoredHashAlgoWarningLog() {
+        String key = XPackSettings.SERVICE_TOKEN_HASHING_ALGORITHM.getKey();
         final Settings settings = Settings.builder()
             .put(XPackSettings.FIPS_MODE_ENABLED.getKey(), true)
-            .put(key, randomNonFipsCompliantStoredHash())
+            .put(key, randomNonFipsCompliantStoredPasswordHash())
             .build();
-        assertThatLogger(() -> Security.validateForFips(settings), Security.class, logEventForNonCompliantStoredHash(key));
+        assertThatLogger(() -> Security.validateForFips(settings), Security.class, logEventForNonCompliantStoredPasswordHash(key));
+    }
+
+    public void testValidateForFipsNonFipsCompliantApiKeyStoredHashAlgoWarningLog() {
+        var nonCompliant = randomFrom(
+            Hasher.getAvailableAlgoStoredPasswordHash()
+                .stream()
+                .filter(alg -> alg.startsWith("pbkdf2") == false && alg.startsWith("ssha256") == false)
+                .collect(Collectors.toList())
+        );
+        String key = ApiKeyService.STORED_HASH_ALGO_SETTING.getKey();
+        final Settings settings = Settings.builder().put(XPackSettings.FIPS_MODE_ENABLED.getKey(), true).put(key, nonCompliant).build();
+        assertThatLogger(() -> Security.validateForFips(settings), Security.class, logEventForNonCompliantStoredApiKeyHash(key));
+    }
+
+    public void testValidateForFipsFipsCompliantApiKeyStoredHashAlgoWarningLog() {
+        var compliant = randomFrom(
+            Hasher.getAvailableAlgoStoredPasswordHash()
+                .stream()
+                .filter(alg -> alg.startsWith("pbkdf2") || alg.startsWith("ssha256"))
+                .collect(Collectors.toList())
+        );
+        String key = ApiKeyService.STORED_HASH_ALGO_SETTING.getKey();
+        final Settings settings = Settings.builder().put(XPackSettings.FIPS_MODE_ENABLED.getKey(), true).put(key, compliant).build();
+        assertThatLogger(() -> Security.validateForFips(settings), Security.class);
     }
 
     public void testValidateForMultipleNonFipsCompliantCacheHashAlgoWarningLogs() throws IllegalAccessException {
@@ -748,7 +781,7 @@ public class SecurityTests extends ESTestCase {
                 // On trial license, kerberos is allowed and the WWW-Authenticate response header should reflect that
                 verifyHasAuthenticationHeaderValue(
                     e,
-                    "Basic realm=\"" + XPackField.SECURITY + "\" charset=\"UTF-8\"",
+                    "Basic realm=\"" + XPackField.SECURITY + "\", charset=\"UTF-8\"",
                     "Negotiate",
                     "ApiKey"
                 );
@@ -760,7 +793,7 @@ public class SecurityTests extends ESTestCase {
             request.getHttpRequest(),
             ActionListener.wrap(result -> { assertTrue(completed.compareAndSet(false, true)); }, e -> {
                 // On basic or gold license, kerberos is not allowed and the WWW-Authenticate response header should also reflect that
-                verifyHasAuthenticationHeaderValue(e, "Basic realm=\"" + XPackField.SECURITY + "\" charset=\"UTF-8\"", "ApiKey");
+                verifyHasAuthenticationHeaderValue(e, "Basic realm=\"" + XPackField.SECURITY + "\", charset=\"UTF-8\"", "ApiKey");
             })
         );
         if (completed.get()) {
@@ -824,7 +857,10 @@ public class SecurityTests extends ESTestCase {
                 mock(ClusterService.class),
                 null,
                 List.of(),
-                RestExtension.allowAll()
+                List.of(),
+                RestExtension.allowAll(),
+                new IncrementalBulkService(null, null),
+                TestProjectResolvers.singleProjectOnly()
             );
             actionModule.initRestHandlers(null, null);
 
@@ -960,8 +996,11 @@ public class SecurityTests extends ESTestCase {
     public void testReload() throws Exception {
         final Settings settings = Settings.builder().put("xpack.security.enabled", true).put("path.home", createTempDir()).build();
 
-        final PlainActionFuture<ActionResponse.Empty> value = new PlainActionFuture<>();
+        final ThreadPool threadPool = mock(ThreadPool.class);
+        threadContext = new ThreadContext(Settings.EMPTY);
+        when(threadPool.getThreadContext()).thenReturn(threadContext);
         final Client mockedClient = mock(Client.class);
+        when(mockedClient.threadPool()).thenReturn(threadPool);
 
         final JwtRealm mockedJwtRealm = mock(JwtRealm.class);
         final List<ReloadableSecurityComponent> reloadableComponents = List.of(mockedJwtRealm);
@@ -992,11 +1031,17 @@ public class SecurityTests extends ESTestCase {
         verify(mockedJwtRealm).reload(same(inputSettings));
     }
 
-    public void testReloadWithFailures() throws Exception {
+    public void testReloadWithFailures() {
         final Settings settings = Settings.builder().put("xpack.security.enabled", true).put("path.home", createTempDir()).build();
 
         final boolean failRemoteClusterCredentialsReload = randomBoolean();
+
+        final ThreadPool threadPool = mock(ThreadPool.class);
+        threadContext = new ThreadContext(Settings.EMPTY);
+        when(threadPool.getThreadContext()).thenReturn(threadContext);
         final Client mockedClient = mock(Client.class);
+        when(mockedClient.threadPool()).thenReturn(threadPool);
+
         final JwtRealm mockedJwtRealm = mock(JwtRealm.class);
         final List<ReloadableSecurityComponent> reloadableComponents = List.of(mockedJwtRealm);
         if (failRemoteClusterCredentialsReload) {
@@ -1125,9 +1170,12 @@ public class SecurityTests extends ESTestCase {
         );
     }
 
-    private String randomNonFipsCompliantStoredHash() {
+    private String randomNonFipsCompliantStoredPasswordHash() {
         return randomFrom(
-            Hasher.getAvailableAlgoStoredHash().stream().filter(alg -> alg.startsWith("pbkdf2") == false).collect(Collectors.toList())
+            Hasher.getAvailableAlgoStoredPasswordHash()
+                .stream()
+                .filter(alg -> alg.startsWith("pbkdf2") == false)
+                .collect(Collectors.toList())
         );
     }
 
@@ -1143,7 +1191,19 @@ public class SecurityTests extends ESTestCase {
         );
     }
 
-    private MockLog.SeenEventExpectation logEventForNonCompliantStoredHash(String settingKey) {
+    private MockLog.SeenEventExpectation logEventForNonCompliantStoredApiKeyHash(String settingKey) {
+        return new MockLog.SeenEventExpectation(
+            "cache hash not fips compliant",
+            Security.class.getName(),
+            Level.WARN,
+            "[*] is not recommended for stored API key hashing in a FIPS 140 JVM. "
+                + "The recommended hasher for ["
+                + settingKey
+                + "] is SSHA256."
+        );
+    }
+
+    private MockLog.SeenEventExpectation logEventForNonCompliantStoredPasswordHash(String settingKey) {
         return new MockLog.SeenEventExpectation(
             "stored hash not fips compliant",
             Security.class.getName(),

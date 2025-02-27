@@ -15,6 +15,7 @@ import org.elasticsearch.core.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
@@ -45,8 +46,8 @@ public final class LuceneSliceQueue {
         return totalSlices;
     }
 
-    public Iterable<LuceneSlice> getSlices() {
-        return slices;
+    public Collection<String> remainingShardsIdentifiers() {
+        return slices.stream().map(slice -> slice.shardContext().shardIdentifier()).toList();
     }
 
     public static LuceneSliceQueue create(
@@ -120,7 +121,7 @@ public final class LuceneSliceQueue {
     }
 
     static List<List<PartialLeafReaderContext>> segmentSlices(List<LeafReaderContext> leafContexts) {
-        IndexSearcher.LeafSlice[] gs = IndexSearcher.slices(leafContexts, MAX_DOCS_PER_SLICE, MAX_SEGMENTS_PER_SLICE);
-        return Arrays.stream(gs).map(g -> Arrays.stream(g.leaves).map(PartialLeafReaderContext::new).toList()).toList();
+        IndexSearcher.LeafSlice[] gs = IndexSearcher.slices(leafContexts, MAX_DOCS_PER_SLICE, MAX_SEGMENTS_PER_SLICE, false);
+        return Arrays.stream(gs).map(g -> Arrays.stream(g.partitions).map(PartialLeafReaderContext::new).toList()).toList();
     }
 }

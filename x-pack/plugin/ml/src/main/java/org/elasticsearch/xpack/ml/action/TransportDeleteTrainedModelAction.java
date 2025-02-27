@@ -22,15 +22,14 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateUpdateTask;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
-import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.service.ClusterService;
-import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.core.SuppressForbidden;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.ingest.IngestMetadata;
 import org.elasticsearch.ingest.IngestService;
+import org.elasticsearch.injection.guice.Inject;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.tasks.TaskInfo;
@@ -77,7 +76,6 @@ public class TransportDeleteTrainedModelAction extends AcknowledgedTransportMast
         ThreadPool threadPool,
         Client client,
         ActionFilters actionFilters,
-        IndexNameExpressionResolver indexNameExpressionResolver,
         TrainedModelProvider configProvider,
         InferenceAuditor auditor,
         IngestService ingestService
@@ -89,7 +87,6 @@ public class TransportDeleteTrainedModelAction extends AcknowledgedTransportMast
             threadPool,
             actionFilters,
             DeleteTrainedModelAction.Request::new,
-            indexNameExpressionResolver,
             EsExecutors.DIRECT_EXECUTOR_SERVICE
         );
         this.client = client;
@@ -151,7 +148,7 @@ public class TransportDeleteTrainedModelAction extends AcknowledgedTransportMast
 
     private void deleteModel(DeleteTrainedModelAction.Request request, ClusterState state, ActionListener<AcknowledgedResponse> listener) {
         String id = request.getId();
-        IngestMetadata currentIngestMetadata = state.metadata().custom(IngestMetadata.TYPE);
+        IngestMetadata currentIngestMetadata = state.metadata().getProject().custom(IngestMetadata.TYPE);
         Set<String> referencedModels = InferenceProcessorInfoExtractor.getModelIdsFromInferenceProcessors(currentIngestMetadata);
 
         if (request.isForce() == false && referencedModels.contains(id)) {

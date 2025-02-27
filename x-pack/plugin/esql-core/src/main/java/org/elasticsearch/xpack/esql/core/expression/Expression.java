@@ -6,8 +6,6 @@
  */
 package org.elasticsearch.xpack.esql.core.expression;
 
-import org.elasticsearch.common.io.stream.NamedWriteable;
-import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.xpack.esql.core.QlIllegalArgumentException;
 import org.elasticsearch.xpack.esql.core.capabilities.Resolvable;
 import org.elasticsearch.xpack.esql.core.capabilities.Resolvables;
@@ -16,7 +14,6 @@ import org.elasticsearch.xpack.esql.core.tree.Source;
 import org.elasticsearch.xpack.esql.core.type.DataType;
 import org.elasticsearch.xpack.esql.core.util.StringUtils;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -29,7 +26,7 @@ import java.util.function.Supplier;
  * a, b, ABS(c), and i are all Expressions, with ABS(c) being a Function
  * (which is a type of expression) with a single child, c.
  */
-public abstract class Expression extends Node<Expression> implements Resolvable, NamedWriteable {
+public abstract class Expression extends Node<Expression> implements Resolvable {
 
     public static class TypeResolution {
         private final boolean failed;
@@ -81,24 +78,20 @@ public abstract class Expression extends Node<Expression> implements Resolvable,
         super(source, children);
     }
 
-    @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        // TODO remove this function entirely once all subclasses implement it
-        throw new UnsupportedOperationException("todo unsupported");
-    }
-
-    @Override
-    public String getWriteableName() {
-        // TODO remove this function entirely once all subclasses implement it
-        throw new UnsupportedOperationException("todo unsupported");
-    }
-
-    // whether the expression can be evaluated statically (folded) or not
+    /**
+     * Whether the expression can be evaluated statically, aka "folded", or not.
+     */
     public boolean foldable() {
         return false;
     }
 
-    public Object fold() {
+    /**
+     * Evaluate this expression statically to a constant. It is an error to call
+     * this if {@link #foldable} returns false.
+     */
+    public Object fold(FoldContext ctx) {
+        // TODO After removing FoldContext.unbounded from non-test code examine all calls
+        // for places we should use instanceof Literal instead
         throw new QlIllegalArgumentException("Should not fold expression");
     }
 

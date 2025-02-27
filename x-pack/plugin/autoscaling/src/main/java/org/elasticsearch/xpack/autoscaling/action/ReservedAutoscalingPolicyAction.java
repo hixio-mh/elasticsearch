@@ -8,7 +8,6 @@
 package org.elasticsearch.xpack.autoscaling.action;
 
 import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.reservedstate.ReservedClusterStateHandler;
 import org.elasticsearch.reservedstate.TransformState;
 import org.elasticsearch.xcontent.XContentParser;
@@ -32,7 +31,9 @@ import static org.elasticsearch.common.xcontent.XContentHelper.mapToXContentPars
  * It is used by the ReservedClusterStateService to add/update or remove autoscaling policies. Typical usage
  * for this action is in the context of file based settings.
  */
-public class ReservedAutoscalingPolicyAction implements ReservedClusterStateHandler<List<PutAutoscalingPolicyAction.Request>> {
+public class ReservedAutoscalingPolicyAction
+    implements
+        ReservedClusterStateHandler<ClusterState, List<PutAutoscalingPolicyAction.Request>> {
     public static final String NAME = "autoscaling";
 
     private final AutoscalingCalculateCapacityService.Holder policyValidatorHolder;
@@ -60,9 +61,9 @@ public class ReservedAutoscalingPolicyAction implements ReservedClusterStateHand
     }
 
     @Override
-    public TransformState transform(Object source, TransformState prevState) throws Exception {
-        @SuppressWarnings("unchecked")
-        var requests = prepare((List<PutAutoscalingPolicyAction.Request>) source);
+    public TransformState<ClusterState> transform(List<PutAutoscalingPolicyAction.Request> source, TransformState<ClusterState> prevState)
+        throws Exception {
+        var requests = prepare(source);
         ClusterState state = prevState.state();
 
         for (var request : requests) {
@@ -78,7 +79,7 @@ public class ReservedAutoscalingPolicyAction implements ReservedClusterStateHand
             state = TransportDeleteAutoscalingPolicyAction.deleteAutoscalingPolicy(state, repositoryToDelete);
         }
 
-        return new TransformState(state, entities);
+        return new TransformState<>(state, entities);
 
     }
 
@@ -96,8 +97,8 @@ public class ReservedAutoscalingPolicyAction implements ReservedClusterStateHand
                     PutAutoscalingPolicyAction.Request.parse(
                         policyParser,
                         (roles, deciders) -> new PutAutoscalingPolicyAction.Request(
-                            TimeValue.MINUS_ONE,
-                            TimeValue.MINUS_ONE,
+                            RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT,
+                            RESERVED_CLUSTER_STATE_HANDLER_IGNORED_TIMEOUT,
                             name,
                             roles,
                             deciders

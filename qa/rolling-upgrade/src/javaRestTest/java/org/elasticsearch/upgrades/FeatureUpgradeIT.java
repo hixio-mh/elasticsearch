@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.upgrades;
@@ -14,6 +15,7 @@ import org.elasticsearch.action.admin.cluster.migration.TransportGetFeatureUpgra
 import org.elasticsearch.client.Request;
 import org.elasticsearch.client.ResponseException;
 import org.elasticsearch.test.XContentTestUtils;
+import org.junit.BeforeClass;
 
 import java.util.Collections;
 import java.util.List;
@@ -27,6 +29,11 @@ public class FeatureUpgradeIT extends AbstractRollingUpgradeTestCase {
 
     public FeatureUpgradeIT(@Name("upgradedNodes") int upgradedNodes) {
         super(upgradedNodes);
+    }
+
+    @BeforeClass
+    public static void ensureNotForwardCompatTest() {
+        assumeFalse("Only supported by bwc tests", Boolean.parseBoolean(System.getProperty("tests.fwc", "false")));
     }
 
     public void testGetFeatureUpgradeStatus() throws Exception {

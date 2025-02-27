@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.search.rank;
@@ -204,7 +205,7 @@ public class FieldBasedRerankerIT extends AbstractRerankerIT {
 
         @Override
         public RankFeaturePhaseRankCoordinatorContext buildRankFeaturePhaseCoordinatorContext(int size, int from, Client client) {
-            return new RankFeaturePhaseRankCoordinatorContext(size, from, rankWindowSize()) {
+            return new RankFeaturePhaseRankCoordinatorContext(size, from, rankWindowSize(), false) {
                 @Override
                 protected void computeScores(RankFeatureDoc[] featureDocs, ActionListener<float[]> scoreListener) {
                     float[] scores = new float[featureDocs.length];
@@ -233,7 +234,7 @@ public class FieldBasedRerankerIT extends AbstractRerankerIT {
 
         @Override
         public TransportVersion getMinimalSupportedVersion() {
-            return TransportVersions.RANK_FEATURE_PHASE_ADDED;
+            return TransportVersions.V_8_15_0;
         }
     }
 
@@ -345,7 +346,7 @@ public class FieldBasedRerankerIT extends AbstractRerankerIT {
         @Override
         public RankFeaturePhaseRankCoordinatorContext buildRankFeaturePhaseCoordinatorContext(int size, int from, Client client) {
             if (this.throwingRankBuilderType == ThrowingRankBuilderType.THROWING_RANK_FEATURE_PHASE_COORDINATOR_CONTEXT)
-                return new RankFeaturePhaseRankCoordinatorContext(size, from, rankWindowSize()) {
+                return new RankFeaturePhaseRankCoordinatorContext(size, from, rankWindowSize(), false) {
                     @Override
                     protected void computeScores(RankFeatureDoc[] featureDocs, ActionListener<float[]> scoreListener) {
                         throw new UnsupportedOperationException("rfc - simulated failure");

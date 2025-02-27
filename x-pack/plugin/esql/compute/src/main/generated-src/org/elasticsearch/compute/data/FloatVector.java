@@ -17,7 +17,7 @@ import java.io.IOException;
 
 /**
  * Vector that stores float values.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code X-Vector.java.st} instead.
  */
 public sealed interface FloatVector extends Vector permits ConstantFloatVector, FloatArrayVector, FloatBigArrayVector, ConstantNullVector {
 
@@ -28,6 +28,9 @@ public sealed interface FloatVector extends Vector permits ConstantFloatVector, 
 
     @Override
     FloatVector filter(int... positions);
+
+    @Override
+    FloatBlock keepMask(BooleanVector mask);
 
     @Override
     ReleasableIterator<? extends FloatBlock> lookup(IntBlock positions, ByteSizeValue targetBlockSize);
@@ -101,10 +104,10 @@ public sealed interface FloatVector extends Vector permits ConstantFloatVector, 
         if (isConstant() && positions > 0) {
             out.writeByte(SERIALIZE_VECTOR_CONSTANT);
             out.writeFloat(getFloat(0));
-        } else if (version.onOrAfter(TransportVersions.ESQL_SERIALIZE_ARRAY_VECTOR) && this instanceof FloatArrayVector v) {
+        } else if (version.onOrAfter(TransportVersions.V_8_14_0) && this instanceof FloatArrayVector v) {
             out.writeByte(SERIALIZE_VECTOR_ARRAY);
             v.writeArrayVector(positions, out);
-        } else if (version.onOrAfter(TransportVersions.ESQL_SERIALIZE_BIG_VECTOR) && this instanceof FloatBigArrayVector v) {
+        } else if (version.onOrAfter(TransportVersions.V_8_14_0) && this instanceof FloatBigArrayVector v) {
             out.writeByte(SERIALIZE_VECTOR_BIG_ARRAY);
             v.writeArrayVector(positions, out);
         } else {

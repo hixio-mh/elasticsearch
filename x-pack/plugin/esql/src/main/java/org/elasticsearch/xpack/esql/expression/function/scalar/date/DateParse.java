@@ -17,28 +17,23 @@ import org.elasticsearch.compute.ann.Fixed;
 import org.elasticsearch.compute.operator.EvalOperator.ExpressionEvaluator;
 import org.elasticsearch.xpack.esql.core.InvalidArgumentException;
 import org.elasticsearch.xpack.esql.core.expression.Expression;
-import org.elasticsearch.xpack.esql.core.expression.function.OptionalArgument;
 import org.elasticsearch.xpack.esql.core.tree.NodeInfo;
 import org.elasticsearch.xpack.esql.core.tree.Source;
 import org.elasticsearch.xpack.esql.core.type.DataType;
 import org.elasticsearch.xpack.esql.expression.function.Example;
 import org.elasticsearch.xpack.esql.expression.function.FunctionInfo;
+import org.elasticsearch.xpack.esql.expression.function.OptionalArgument;
 import org.elasticsearch.xpack.esql.expression.function.Param;
 import org.elasticsearch.xpack.esql.expression.function.scalar.EsqlScalarFunction;
 import org.elasticsearch.xpack.esql.io.stream.PlanStreamInput;
-import org.elasticsearch.xpack.esql.io.stream.PlanStreamOutput;
-import org.elasticsearch.xpack.esql.type.EsqlDataTypes;
 
 import java.io.IOException;
-import java.time.ZoneId;
 import java.util.List;
-import java.util.function.Function;
 
 import static org.elasticsearch.common.time.DateFormatter.forPattern;
 import static org.elasticsearch.xpack.esql.core.expression.TypeResolutions.ParamOrdinal.FIRST;
 import static org.elasticsearch.xpack.esql.core.expression.TypeResolutions.ParamOrdinal.SECOND;
 import static org.elasticsearch.xpack.esql.core.expression.TypeResolutions.isString;
-import static org.elasticsearch.xpack.esql.core.util.DateUtils.UTC;
 import static org.elasticsearch.xpack.esql.expression.EsqlTypeResolutions.isStringAndExact;
 import static org.elasticsearch.xpack.esql.type.EsqlDataTypeConverter.DEFAULT_DATE_TIME_FORMATTER;
 import static org.elasticsearch.xpack.esql.type.EsqlDataTypeConverter.dateTimeToLong;
@@ -78,16 +73,16 @@ public class DateParse extends EsqlScalarFunction implements OptionalArgument {
     private DateParse(StreamInput in) throws IOException {
         this(
             Source.readFrom((PlanStreamInput) in),
-            ((PlanStreamInput) in).readExpression(),
-            in.readOptionalWriteable(i -> ((PlanStreamInput) i).readExpression())
+            in.readNamedWriteable(Expression.class),
+            in.readOptionalNamedWriteable(Expression.class)
         );
     }
 
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         source().writeTo(out);
-        ((PlanStreamOutput) out).writeExpression(children().get(0));
-        out.writeOptionalWriteable(children().size() == 2 ? o -> ((PlanStreamOutput) out).writeExpression(children().get(1)) : null);
+        out.writeNamedWriteable(children().get(0));
+        out.writeOptionalNamedWriteable(children().size() == 2 ? children().get(1) : null);
     }
 
     @Override
@@ -133,34 +128,33 @@ public class DateParse extends EsqlScalarFunction implements OptionalArgument {
     }
 
     @Evaluator(warnExceptions = { IllegalArgumentException.class })
-    static long process(BytesRef val, BytesRef formatter, @Fixed ZoneId zoneId) throws IllegalArgumentException {
-        return dateTimeToLong(val.utf8ToString(), toFormatter(formatter, zoneId));
+    static long process(BytesRef val, BytesRef formatter) throws IllegalArgumentException {
+        return dateTimeToLong(val.utf8ToString(), toFormatter(formatter));
     }
 
     @Override
-    public ExpressionEvaluator.Factory toEvaluator(Function<Expression, ExpressionEvaluator.Factory> toEvaluator) {
-        ZoneId zone = UTC; // TODO session timezone?
+    public ExpressionEvaluator.Factory toEvaluator(ToEvaluator toEvaluator) {
         ExpressionEvaluator.Factory fieldEvaluator = toEvaluator.apply(field);
         if (format == null) {
             return new DateParseConstantEvaluator.Factory(source(), fieldEvaluator, DEFAULT_DATE_TIME_FORMATTER);
         }
-        if (EsqlDataTypes.isString(format.dataType()) == false) {
+        if (DataType.isString(format.dataType()) == false) {
             throw new IllegalArgumentException("unsupported data type for date_parse [" + format.dataType() + "]");
         }
         if (format.foldable()) {
             try {
-                DateFormatter formatter = toFormatter(format.fold(), zone);
+                DateFormatter formatter = toFormatter(format.fold(toEvaluator.foldCtx()));
                 return new DateParseConstantEvaluator.Factory(source(), fieldEvaluator, formatter);
             } catch (IllegalArgumentException e) {
                 throw new InvalidArgumentException(e, "invalid date pattern for [{}]: {}", sourceText(), e.getMessage());
             }
         }
         ExpressionEvaluator.Factory formatEvaluator = toEvaluator.apply(format);
-        return new DateParseEvaluator.Factory(source(), fieldEvaluator, formatEvaluator, zone);
+        return new DateParseEvaluator.Factory(source(), fieldEvaluator, formatEvaluator);
     }
 
-    private static DateFormatter toFormatter(Object format, ZoneId zone) {
-        return forPattern(((BytesRef) format).utf8ToString()).withZone(zone);
+    private static DateFormatter toFormatter(Object format) {
+        return forPattern(((BytesRef) format).utf8ToString());
     }
 
     @Override

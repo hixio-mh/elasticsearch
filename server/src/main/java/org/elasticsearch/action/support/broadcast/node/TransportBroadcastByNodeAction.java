@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.action.support.broadcast.node;
@@ -38,6 +39,7 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
+import org.elasticsearch.core.FixForMultiProject;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.transport.TransportChannel;
@@ -193,6 +195,7 @@ public abstract class TransportBroadcastByNodeAction<
      * @param concreteIndices the concrete indices on which to execute the operation
      * @return the shards on which to execute the operation
      */
+    @FixForMultiProject(description = "consider taking project scoped state as parameter")
     protected abstract ShardsIterator shards(ClusterState clusterState, Request request, String[] concreteIndices);
 
     /**
@@ -212,6 +215,7 @@ public abstract class TransportBroadcastByNodeAction<
      * @param concreteIndices the concrete indices on which to execute the operation
      * @return a non-null exception if the operation if blocked
      */
+    @FixForMultiProject(description = "consider taking project scoped state as parameter")
     protected abstract ClusterBlockException checkRequestBlock(ClusterState state, Request request, String[] concreteIndices);
 
     /**
@@ -611,7 +615,7 @@ public abstract class TransportBroadcastByNodeAction<
      * which there is no shard-level return value.
      */
     public static final class EmptyResult implements Writeable {
-        public static EmptyResult INSTANCE = new EmptyResult();
+        public static final EmptyResult INSTANCE = new EmptyResult();
 
         private EmptyResult() {}
 

@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.action;
@@ -30,6 +31,7 @@ import org.elasticsearch.action.admin.cluster.migration.PostFeatureUpgradeAction
 import org.elasticsearch.action.admin.cluster.migration.TransportGetFeatureUpgradeStatusAction;
 import org.elasticsearch.action.admin.cluster.migration.TransportPostFeatureUpgradeAction;
 import org.elasticsearch.action.admin.cluster.node.capabilities.TransportNodesCapabilitiesAction;
+import org.elasticsearch.action.admin.cluster.node.features.TransportNodesFeaturesAction;
 import org.elasticsearch.action.admin.cluster.node.hotthreads.TransportNodesHotThreadsAction;
 import org.elasticsearch.action.admin.cluster.node.info.TransportNodesInfoAction;
 import org.elasticsearch.action.admin.cluster.node.reload.TransportNodesReloadSecureSettingsAction;
@@ -158,6 +160,7 @@ import org.elasticsearch.action.admin.indices.template.put.TransportPutComposabl
 import org.elasticsearch.action.admin.indices.template.put.TransportPutIndexTemplateAction;
 import org.elasticsearch.action.admin.indices.validate.query.TransportValidateQueryAction;
 import org.elasticsearch.action.admin.indices.validate.query.ValidateQueryAction;
+import org.elasticsearch.action.bulk.IncrementalBulkService;
 import org.elasticsearch.action.bulk.SimulateBulkAction;
 import org.elasticsearch.action.bulk.TransportBulkAction;
 import org.elasticsearch.action.bulk.TransportShardBulkAction;
@@ -212,14 +215,14 @@ import org.elasticsearch.action.termvectors.TransportShardMultiTermsVectorAction
 import org.elasticsearch.action.termvectors.TransportTermVectorsAction;
 import org.elasticsearch.action.update.TransportUpdateAction;
 import org.elasticsearch.client.internal.node.NodeClient;
+import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
+import org.elasticsearch.cluster.metadata.ProjectMetadata;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
+import org.elasticsearch.cluster.project.ProjectIdResolver;
 import org.elasticsearch.cluster.routing.RerouteService;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.NamedRegistry;
-import org.elasticsearch.common.inject.AbstractModule;
-import org.elasticsearch.common.inject.TypeLiteral;
-import org.elasticsearch.common.inject.multibindings.MapBinder;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.IndexScopedSettings;
@@ -240,6 +243,10 @@ import org.elasticsearch.index.seqno.RetentionLeaseActions;
 import org.elasticsearch.indices.SystemIndices;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
 import org.elasticsearch.indices.store.TransportNodesListShardStoreMetadata;
+import org.elasticsearch.injection.guice.AbstractModule;
+import org.elasticsearch.injection.guice.TypeLiteral;
+import org.elasticsearch.injection.guice.multibindings.MapBinder;
+import org.elasticsearch.monitor.metrics.IndexModeStatsActionType;
 import org.elasticsearch.persistent.CompletionPersistentTaskAction;
 import org.elasticsearch.persistent.RemovePersistentTaskAction;
 import org.elasticsearch.persistent.StartPersistentTaskAction;
@@ -349,9 +356,7 @@ import org.elasticsearch.rest.action.admin.indices.RestResolveIndexAction;
 import org.elasticsearch.rest.action.admin.indices.RestRolloverIndexAction;
 import org.elasticsearch.rest.action.admin.indices.RestSimulateIndexTemplateAction;
 import org.elasticsearch.rest.action.admin.indices.RestSimulateTemplateAction;
-import org.elasticsearch.rest.action.admin.indices.RestSyncedFlushAction;
 import org.elasticsearch.rest.action.admin.indices.RestUpdateSettingsAction;
-import org.elasticsearch.rest.action.admin.indices.RestUpgradeActionDeprecated;
 import org.elasticsearch.rest.action.admin.indices.RestValidateQueryAction;
 import org.elasticsearch.rest.action.cat.AbstractCatAction;
 import org.elasticsearch.rest.action.cat.RestAliasAction;
@@ -446,6 +451,8 @@ public class ActionModule extends AbstractModule {
     private final List<ActionPlugin> actionPlugins;
     private final Map<String, ActionHandler<?, ?>> actions;
     private final ActionFilters actionFilters;
+    private final IncrementalBulkService bulkService;
+    private final ProjectIdResolver projectIdResolver;
     private final AutoCreateIndex autoCreateIndex;
     private final DestructiveOperations destructiveOperations;
     private final RestController restController;
@@ -473,8 +480,11 @@ public class ActionModule extends AbstractModule {
         TelemetryProvider telemetryProvider,
         ClusterService clusterService,
         RerouteService rerouteService,
-        List<ReservedClusterStateHandler<?>> reservedStateHandlers,
-        RestExtension restExtension
+        List<ReservedClusterStateHandler<ClusterState, ?>> reservedClusterStateHandlers,
+        List<ReservedClusterStateHandler<ProjectMetadata, ?>> reservedProjectStateHandlers,
+        RestExtension restExtension,
+        IncrementalBulkService bulkService,
+        ProjectIdResolver projectIdResolver
     ) {
         this.settings = settings;
         this.indexNameExpressionResolver = indexNameExpressionResolver;
@@ -486,6 +496,8 @@ public class ActionModule extends AbstractModule {
         this.threadPool = threadPool;
         actions = setupActions(actionPlugins);
         actionFilters = setupActionFilters(actionPlugins);
+        this.bulkService = bulkService;
+        this.projectIdResolver = projectIdResolver;
         autoCreateIndex = new AutoCreateIndex(settings, clusterSettings, indexNameExpressionResolver, systemIndices);
         destructiveOperations = new DestructiveOperations(settings, clusterSettings);
         Set<RestHeaderDefinition> headers = Stream.concat(
@@ -520,7 +532,12 @@ public class ActionModule extends AbstractModule {
         } else {
             restController = new RestController(restInterceptor, nodeClient, circuitBreakerService, usageService, telemetryProvider);
         }
-        reservedClusterStateService = new ReservedClusterStateService(clusterService, rerouteService, reservedStateHandlers);
+        reservedClusterStateService = new ReservedClusterStateService(
+            clusterService,
+            rerouteService,
+            reservedClusterStateHandlers,
+            reservedProjectStateHandlers
+        );
         this.restExtension = restExtension;
     }
 
@@ -621,8 +638,10 @@ public class ActionModule extends AbstractModule {
         actions.register(TransportNodesInfoAction.TYPE, TransportNodesInfoAction.class);
         actions.register(TransportRemoteInfoAction.TYPE, TransportRemoteInfoAction.class);
         actions.register(TransportNodesCapabilitiesAction.TYPE, TransportNodesCapabilitiesAction.class);
+        actions.register(TransportNodesFeaturesAction.TYPE, TransportNodesFeaturesAction.class);
         actions.register(RemoteClusterNodesAction.TYPE, RemoteClusterNodesAction.TransportAction.class);
         actions.register(TransportNodesStatsAction.TYPE, TransportNodesStatsAction.class);
+        actions.register(IndexModeStatsActionType.TYPE, IndexModeStatsActionType.TransportAction.class);
         actions.register(TransportNodesUsageAction.TYPE, TransportNodesUsageAction.class);
         actions.register(TransportNodesHotThreadsAction.TYPE, TransportNodesHotThreadsAction.class);
         actions.register(TransportListTasksAction.TYPE, TransportListTasksAction.class);
@@ -846,8 +865,8 @@ public class ActionModule extends AbstractModule {
         registerHandler.accept(new RestClusterStateAction(settingsFilter, threadPool));
         registerHandler.accept(new RestClusterHealthAction());
         registerHandler.accept(new RestClusterUpdateSettingsAction());
-        registerHandler.accept(new RestClusterGetSettingsAction(settings, clusterSettings, settingsFilter, clusterSupportsFeature));
-        registerHandler.accept(new RestClusterRerouteAction(settingsFilter));
+        registerHandler.accept(new RestClusterGetSettingsAction(settings, clusterSettings, settingsFilter));
+        registerHandler.accept(new RestClusterRerouteAction(settingsFilter, projectIdResolver));
         registerHandler.accept(new RestClusterSearchShardsAction());
         registerHandler.accept(new RestPendingClusterTasksAction());
         registerHandler.accept(new RestPutRepositoryAction());
@@ -909,7 +928,6 @@ public class ActionModule extends AbstractModule {
 
         registerHandler.accept(new RestRefreshAction());
         registerHandler.accept(new RestFlushAction());
-        registerHandler.accept(new RestSyncedFlushAction());
         registerHandler.accept(new RestForceMergeAction());
         registerHandler.accept(new RestClearIndicesCacheAction());
         registerHandler.accept(new RestResolveClusterAction());
@@ -925,7 +943,7 @@ public class ActionModule extends AbstractModule {
         registerHandler.accept(new RestCountAction());
         registerHandler.accept(new RestTermVectorsAction());
         registerHandler.accept(new RestMultiTermVectorsAction());
-        registerHandler.accept(new RestBulkAction(settings));
+        registerHandler.accept(new RestBulkAction(settings, bulkService));
         registerHandler.accept(new RestUpdateAction());
 
         registerHandler.accept(new RestSearchAction(restController.getSearchUsageHolder(), clusterSupportsFeature));
@@ -976,7 +994,7 @@ public class ActionModule extends AbstractModule {
         registerHandler.accept(new RestNodesAction());
         registerHandler.accept(new RestClusterInfoAction());
         registerHandler.accept(new RestTasksAction(nodesInCluster));
-        registerHandler.accept(new RestIndicesAction());
+        registerHandler.accept(new RestIndicesAction(projectIdResolver));
         registerHandler.accept(new RestSegmentsAction());
         // Fully qualified to prevent interference with rest.action.count.RestCountAction
         registerHandler.accept(new org.elasticsearch.rest.action.cat.RestCountAction());
@@ -992,15 +1010,13 @@ public class ActionModule extends AbstractModule {
         registerHandler.accept(new RestRepositoriesAction());
         registerHandler.accept(new RestSnapshotAction());
         registerHandler.accept(new RestTemplatesAction());
-        registerHandler.accept(new RestCatComponentTemplateAction());
+        registerHandler.accept(new RestCatComponentTemplateAction(projectIdResolver));
         registerHandler.accept(new RestAnalyzeIndexDiskUsageAction());
         registerHandler.accept(new RestFieldUsageStatsAction());
 
-        registerHandler.accept(new RestUpgradeActionDeprecated());
-
         // Desired nodes
         registerHandler.accept(new RestGetDesiredNodesAction());
-        registerHandler.accept(new RestUpdateDesiredNodesAction(clusterSupportsFeature));
+        registerHandler.accept(new RestUpdateDesiredNodesAction());
         registerHandler.accept(new RestDeleteDesiredNodesAction());
 
         for (ActionPlugin plugin : actionPlugins) {

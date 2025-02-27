@@ -7,13 +7,16 @@
 
 package org.elasticsearch.xpack.inference.external.action.googlevertexai;
 
+import org.elasticsearch.inference.InputType;
 import org.elasticsearch.xpack.inference.external.action.ExecutableAction;
 import org.elasticsearch.xpack.inference.services.googlevertexai.embeddings.GoogleVertexAiEmbeddingsModel;
+import org.elasticsearch.xpack.inference.services.googlevertexai.rerank.GoogleVertexAiRerankModel;
 
 import java.util.Map;
 
 public interface GoogleVertexAiActionVisitor {
 
-    ExecutableAction create(GoogleVertexAiEmbeddingsModel model, Map<String, Object> taskSettings);
+    ExecutableAction create(GoogleVertexAiEmbeddingsModel model, Map<String, Object> taskSettings, InputType inputType);
 
+    ExecutableAction create(GoogleVertexAiRerankModel model, Map<String, Object> taskSettings);
 }

@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.cluster.routing;
@@ -406,7 +407,7 @@ public record UnassignedInfo(
         for (ShardRouting shard : state.getRoutingNodes().unassigned()) {
             UnassignedInfo unassignedInfo = shard.unassignedInfo();
             if (unassignedInfo.delayed()) {
-                Settings indexSettings = metadata.index(shard.index()).getSettings();
+                Settings indexSettings = metadata.getProject().index(shard.index()).getSettings();
                 // calculate next time to schedule
                 final long newComputedLeftDelayNanos = unassignedInfo.remainingDelay(
                     currentNanoTime,

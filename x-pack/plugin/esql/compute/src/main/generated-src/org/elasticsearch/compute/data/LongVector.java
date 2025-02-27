@@ -17,7 +17,7 @@ import java.io.IOException;
 
 /**
  * Vector that stores long values.
- * This class is generated. Do not edit it.
+ * This class is generated. Edit {@code X-Vector.java.st} instead.
  */
 public sealed interface LongVector extends Vector permits ConstantLongVector, LongArrayVector, LongBigArrayVector, ConstantNullVector {
 
@@ -28,6 +28,9 @@ public sealed interface LongVector extends Vector permits ConstantLongVector, Lo
 
     @Override
     LongVector filter(int... positions);
+
+    @Override
+    LongBlock keepMask(BooleanVector mask);
 
     @Override
     ReleasableIterator<? extends LongBlock> lookup(IntBlock positions, ByteSizeValue targetBlockSize);
@@ -102,10 +105,10 @@ public sealed interface LongVector extends Vector permits ConstantLongVector, Lo
         if (isConstant() && positions > 0) {
             out.writeByte(SERIALIZE_VECTOR_CONSTANT);
             out.writeLong(getLong(0));
-        } else if (version.onOrAfter(TransportVersions.ESQL_SERIALIZE_ARRAY_VECTOR) && this instanceof LongArrayVector v) {
+        } else if (version.onOrAfter(TransportVersions.V_8_14_0) && this instanceof LongArrayVector v) {
             out.writeByte(SERIALIZE_VECTOR_ARRAY);
             v.writeArrayVector(positions, out);
-        } else if (version.onOrAfter(TransportVersions.ESQL_SERIALIZE_BIG_VECTOR) && this instanceof LongBigArrayVector v) {
+        } else if (version.onOrAfter(TransportVersions.V_8_14_0) && this instanceof LongBigArrayVector v) {
             out.writeByte(SERIALIZE_VECTOR_BIG_ARRAY);
             v.writeArrayVector(positions, out);
         } else {

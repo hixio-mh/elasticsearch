@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.action.support.replication;
@@ -18,6 +19,7 @@ import org.elasticsearch.action.support.WriteResponse;
 import org.elasticsearch.cluster.action.shard.ShardStateAction;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexAbstraction;
+import org.elasticsearch.cluster.project.ProjectResolver;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.io.stream.Writeable;
@@ -60,6 +62,7 @@ public abstract class TransportWriteAction<
     protected final IndexingPressure indexingPressure;
     protected final SystemIndices systemIndices;
     protected final ExecutorSelector executorSelector;
+    protected final ProjectResolver projectResolver;
 
     protected final PostWriteRefresh postWriteRefresh;
     private final BiFunction<ExecutorSelector, IndexShard, Executor> executorFunction;
@@ -76,9 +79,11 @@ public abstract class TransportWriteAction<
         Writeable.Reader<Request> request,
         Writeable.Reader<ReplicaRequest> replicaRequest,
         BiFunction<ExecutorSelector, IndexShard, Executor> executorFunction,
-        boolean forceExecutionOnPrimary,
+        PrimaryActionExecution primaryActionExecution,
         IndexingPressure indexingPressure,
-        SystemIndices systemIndices
+        SystemIndices systemIndices,
+        ProjectResolver projectResolver,
+        ReplicaActionExecution replicaActionExecution
     ) {
         // We pass ThreadPool.Names.SAME to the super class as we control the dispatching to the
         // ThreadPool.Names.WRITE/ThreadPool.Names.SYSTEM_WRITE thread pools in this class.
@@ -94,13 +99,15 @@ public abstract class TransportWriteAction<
             request,
             replicaRequest,
             EsExecutors.DIRECT_EXECUTOR_SERVICE,
-            true,
-            forceExecutionOnPrimary
+            SyncGlobalCheckpointAfterOperation.AttemptAfterSuccess,
+            primaryActionExecution,
+            replicaActionExecution
         );
         this.executorFunction = executorFunction;
         this.indexingPressure = indexingPressure;
         this.systemIndices = systemIndices;
         this.executorSelector = systemIndices.getExecutorSelector();
+        this.projectResolver = projectResolver;
         this.postWriteRefresh = new PostWriteRefresh(transportService);
     }
 
@@ -118,7 +125,9 @@ public abstract class TransportWriteAction<
     }
 
     protected boolean isSystemShard(ShardId shardId) {
-        final IndexAbstraction abstraction = clusterService.state().metadata().getIndicesLookup().get(shardId.getIndexName());
+        final IndexAbstraction abstraction = projectResolver.getProjectMetadata(clusterService.state())
+            .getIndicesLookup()
+            .get(shardId.getIndexName());
         return abstraction != null ? abstraction.isSystem() : systemIndices.isSystemIndex(shardId.getIndexName());
     }
 
